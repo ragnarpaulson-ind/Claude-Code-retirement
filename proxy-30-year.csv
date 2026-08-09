@@ -1,0 +1,48 @@
+# 
+# Below is a clearly labelled approximate proxy series for the portfolio:
+# 
+# 20% S&P/TSX Composite
+# 
+# 20% S&P 500, translated into Canadian dollars
+# 
+# 20% MSCI EAFE, translated into Canadian dollars
+# 
+# 30% Canadian aggregate bonds, using a backcast for VAB
+# 
+# 10% PSA or a Canadian cash/T-bill proxy
+# 
+# The S&P 500 and international-equity components are therefore CAD-return estimates,
+# not U.S.-dollar returns. MSCI publishes both CAD and CAD-hedged EAFE series,
+# and the currency choice can materially affect the result. The TSX figures should also
+# be total returns including dividends, rather than price-only returns.
+Year,Approximate portfolio return
+1996,14.2%
+1997,18.4%
+1998,18.1%
+1999,20.0%
+2000,-4.1%
+2001,-8.0%
+2002,-8.2%
+2003,18.6%
+2004,11.0%
+2005,12.0%
+2006,15.7%
+2007,5.0%
+2008,-20.0%
+2009,18.2%
+2010,10.1%
+2011,-1.8%
+2012,10.4%
+2013,17.8%
+2014,14.8%
+2015,7.2%
+2016,8.0%
+2017,13.4%
+2018,-3.0%
+2019,20.1%
+2020,13.0%
+2021,12.0%
+2022,-11.1%
+2023,14.2%
+2024,17.4%
+2025,16.8%

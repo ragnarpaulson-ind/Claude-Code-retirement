@@ -1,0 +1,6 @@
+# date,amount,note
+# amount: negative = expense (big-ticket item), positive = windfall (home sale, downsize proceeds)
+2029-06-01,-40000,Replace vehicle
+2035-06-01,-15000,Roof replacement
+2036-01-01,-50000,Replace vehicle
+2036-06-01,400000,Downsize home profit

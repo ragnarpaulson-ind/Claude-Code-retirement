@@ -1,0 +1,113 @@
+# 
+# Using MSCI EAFE weighted at 20%, TSX at 20%, S&P at 20%, create a a report on the last 40 years
+# on a per year basis for percent ROI, to each year add 0.8% to represent 40% of a 2% return on fixed income and high interest savings.
+
+# 40-year portfolio report
+# I interpreted the proposed allocation as:
+# - 20% MSCI EAFE
+# - 20% S&P 500
+# - 20% S&P/TSX Composite
+# 0 40% fixed income/high-interest savings
+# You asked to add 0.8 percentage points per year, representing 40% × 2%
+# so the calculated annual portfolio return is:
+#
+# ROI = 0.20 ( EAFE ) + 0.20 ( TSX ) + 0.20 ( S&P 500 ) + 0.80%
+# 
+# The report covers the 40 completed calendar years from 1986 through 2025. MSCI EAFE and the S&P 500 figures
+# include reinvested distributions; TSX figures are total-return estimates for the later period and
+# rounded historical figures for the earlier years.
+# | Year | MSCI EAFE | TSX     | S&P 500 | Portfolio ROI |
+# | ---- | --------- | ------- | ------- | ------------- |
+# | 1986 | 69.94%    | 9.00%   | 18.67%  | 20.32%        |
+# | 1987 | 24.93%    | 5.90%   | 5.25%   | 8.02%         |
+# | 1988 | 28.59%    | 16.00%  | 16.61%  | 13.04%        |
+# | 1989 | 10.80%    | 31.70%  | 31.69%  | 15.64%        |
+# | 1990 | -23.20%   | -17.50% | -3.10%  | -7.96%        |
+# | 1991 | 12.50%    | 12.50%  | 30.47%  | 11.89%        |
+# | 1992 | -11.85%   | -4.30%  | 7.62%   | -0.91%        |
+# | 1993 | 32.94%    | 32.50%  | 10.08%  | 15.90%        |
+# | 1994 | 8.06%     | -0.20%  | 1.32%   | 2.64%         |
+# | 1995 | 11.55%    | 14.50%  | 37.58%  | 13.53%        |
+# | 1996 | 6.36%     | 28.30%  | 22.96%  | 12.32%        |
+# | 1997 | 2.06%     | 15.00%  | 33.36%  | 10.88%        |
+# | 1998 | 20.33%    | -1.60%  | 28.58%  | 10.26%        |
+# | 1999 | 27.30%    | 31.70%  | 21.04%  | 16.81%        |
+# | 2000 | -13.96%   | 7.40%   | -9.10%  | -2.33%        |
+# | 2001 | -21.21%   | -12.60% | -11.89% | -8.34%        |
+# | 2002 | -15.66%   | -12.40% | -22.10% | -9.23%        |
+# | 2003 | 39.17%    | 26.70%  | 28.68%  | 19.71%        |
+# | 2004 | 20.70%    | 14.50%  | 10.88%  | 10.02%        |
+# | 2005 | 14.02%    | 24.10%  | 4.91%   | 9.41%         |
+# | 2006 | 26.86%    | 17.30%  | 15.79%  | 12.79%        |
+# | 2007 | 11.63%    | 9.80%   | 5.49%   | 6.18%         |
+# | 2008 | -43.06%   | -33.00% | -37.00% | -21.81%       |
+# | 2009 | 32.46%    | 35.10%  | 26.46%  | 19.60%        |
+# | 2010 | 8.21%     | 17.60%  | 15.06%  | 8.97%         |
+# | 2011 | -11.73%   | -8.70%  | 2.11%   | -2.86%        |
+# | 2012 | 17.90%    | 7.20%   | 16.00%  | 9.02%         |
+# | 2013 | 23.29%    | 13.00%  | 32.39%  | 14.54%        |
+# | 2014 | -4.48%    | 10.60%  | 13.69%  | 4.76%         |
+# | 2015 | -0.39%    | -8.30%  | 1.38%   | -0.66%        |
+# | 2016 | 1.51%     | 21.10%  | 11.96%  | 7.71%         |
+# | 2017 | 25.62%    | 9.10%   | 21.83%  | 12.11%        |
+# | 2018 | -13.36%   | -8.90%  | -4.38%  | -4.53%        |
+# | 2019 | 22.66%    | 22.90%  | 31.49%  | 16.21%        |
+# | 2020 | 8.28%     | 5.60%   | 18.40%  | 7.26%         |
+# | 2021 | 11.78%    | 25.09%  | 28.71%  | 13.92%        |
+# | 2022 | -14.01%   | -5.84%  | -18.11% | -6.79%        |
+# | 2023 | 18.85%    | 11.75%  | 26.29%  | 12.18%        |
+# | 2024 | 4.35%     | 21.65%  | 25.02%  | 11.00%        |
+# | 2025 | 31.89%    | 31.68%  | 17.88%  | 17.09%        |
+# Data-quality caveat
+# MSCI states that the EAFE Index was launched on March 31, 1986, and that data before the launch date is back-tested.
+# Consequently, the 1986 calendar-year figure is not a fully live, observed 12-month index history.
+# It incorporates historical calculations for the period before the index’s launch.
+# 
+# For a clean 40-year analysis, there are two reasonable approaches:
+# 
+# Retain 1986, but label it as partly back-tested.
+# 
+# Use 1987–2025, which contains 39 calendar years of predominantly live index history,
+# or use a different 40-year window supported by a consistently available series.
+#
+# 1986,20.32%
+#
+1987,8.02%
+1988,13.04%
+1989,15.64%
+1990,-7.96%
+1991,11.89%
+1992,-0.91%
+1993,15.90%
+1994,2.64%
+1995,13.53%
+1996,12.32%
+1997,10.88%
+1998,10.26%
+1999,16.81%
+2000,-2.33%
+2001,-8.34%
+2002,-9.23%
+2003,19.71%
+2004,10.02%
+2005,9.41%
+2006,12.79%
+2007,6.18%
+2008,-21.81%
+2009,19.60%
+2010,8.97%
+2011,-2.86%
+2012,9.02%
+2013,14.54%
+2014,4.76%
+2015,-0.66%
+2016,7.71%
+2017,12.11%
+2018,-4.53%
+2019,16.21%
+2020,7.26%
+2021,13.92%
+2022,-6.79%
+2023,12.18%
+2024,11.00%
+2025,17.09%

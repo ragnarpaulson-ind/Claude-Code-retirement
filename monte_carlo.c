@@ -7,16 +7,19 @@
 #include "retirement_sim.h"
 
 /* Historical returns file format: one annual % return per non-blank,
-   non-comment line, e.g.:
+   non-comment line, each line contains 3 values,  year,return,cpi
+   eg:
        # a rough placeholder blended return series -- replace with real data
-       7.2
-       -3.1
-       11.8
+       1986,7.2,1.7
+       1987,-3.1,-0.5
+       1988,11.8,4.1
        ...
-   Lines starting with '#' and blank lines are ignored. Whatever's on a line
-   before the first comma (if any) is used, so "1994,7.2" style lines also
-   work if you're pasting straight from a spreadsheet export. */
-static int load_return_series(const char *path, double **out, int *n) {
+   Lines starting with '#' and blank lines are ignored. 
+   Years must be consecutive.  As the Canadian government does not reduce benefits, 
+   negative cpi is treated as 0
+*/
+
+static int load_return_series(const char *path, historical_returns_t **out, int *n) {
     FILE *f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Could not open historical returns file '%s'\n", path);
@@ -24,37 +27,72 @@ static int load_return_series(const char *path, double **out, int *n) {
     }
 
     int capacity = 128, count = 0;
-    double *arr = malloc(capacity * sizeof(double));
+    historical_returns_t *returns = malloc(capacity * sizeof(historical_returns_t));
     char line[256];
 
     while (fgets(line, sizeof(line), f)) {
         char *l = line;
         while (isspace((unsigned char)*l)) l++;
         if (*l == 0 || *l == '#') continue;
-
-        /* accept either "return" or "year,return" -- use the last comma-
-           separated field so a leading year column doesn't break atof */
-        char *last_field = l;
-        for (char *p = l; *p; p++) {
-            if (*p == ',') last_field = p + 1;
-        }
-        double val = atof(last_field);
-
         if (count >= capacity) {
             capacity *= 2;
-            arr = realloc(arr, capacity * sizeof(double));
+            returns = realloc(returns, capacity * sizeof(double));
         }
-        arr[count++] = val;
+
+        /* expect "year,return,cpi"  -- */
+	returns[count].year = atol(l);
+	if (count > 0) {
+	    if ((returns[count-1].year+1) != (returns[count].year)) {
+		fprintf(stderr, "Invalid historical returns file, year %d followed by %d\n",
+		    returns[count-1].year, returns[count].year);
+		    free(returns);
+		    return 0;
+	    }
+	}
+	while (*l != 0) {
+	    if (',' != (unsigned char) *l) l++;
+	    else {
+		l++;
+		break;
+	    }
+	}
+	if (*l != 0) {
+	    returns[count].roi = atof(l);
+	}
+	else {
+	    fprintf(stderr, "Invalid historical returns file, no return for year %d\n",
+		returns[count].year);
+		free(returns);
+		return 0;
+	}
+	while (*l != 0) {
+	    if (',' != (unsigned char) *l) l++;
+	    else {
+		l++;
+		break;
+	    }
+	}
+	if (*l != 0) {
+	    returns[count].cpi = atof(l);
+	}
+	else {
+	    fprintf(stderr, "Invalid historical returns file, no cpi for year %d\n",
+		returns[count].year);
+		free(returns);
+		return 0;
+	}
+	count++;
+
     }
     fclose(f);
 
     if (count == 0) {
         fprintf(stderr, "Historical returns file '%s' had no usable data rows.\n", path);
-        free(arr);
+        free(returns);
         return 0;
     }
 
-    *out = arr;
+    *out = returns;
     *n = count;
     return 1;
 }
@@ -80,7 +118,7 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
         return 0;
     }
 
-    double *returns = NULL;
+    historical_returns_t *returns = NULL;
     int n_returns = 0;
     if (!load_return_series(c->mc_returns_file, &returns, &n_returns)) return 0;
 
@@ -97,18 +135,28 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
        equivalent based on the starting historial data  */
     double cumulative_return = 1.0;
     for (int i = 0; i < n_returns; i++) {
-        cumulative_return *= (1.0 + returns[i] / 100.0);
+        cumulative_return *= (1.0 + returns[i].roi / 100.0);
     }
   
     double fixed_yearly_return = pow(cumulative_return, 1.0 / n_returns) - 1.0;
     cumulative_return -= 1.0;  /* convert to percentage */
     printf("Historical returns file '%s' has %d usable years, cumulative return %.2f%%, fixed yearly equivalent %.2f%%\n",
            c->mc_returns_file, n_returns, (cumulative_return) * 100.0, fixed_yearly_return * 100.0);
+    /* calculate the cumulative inflation (cpi) in the historical data and fixed yearly equivalent */
+    double cumulative_inflate = 1.0;
+    for (int i = 0; i < n_returns; i++) {
+        cumulative_inflate *= (1.0 + returns[i].cpi / 100.0);
+    }
+  
+    double fixed_yearly_cpi = pow(cumulative_inflate, 1.0 / n_returns) - 1.0;
+    cumulative_inflate -= 1.0;  /* convert to percentage */
+    printf("Historical CPI file '%s' has %d usable years, cumulative infation %.2f%%, fixed yearly equivalent %.2f%%\n",
+           c->mc_returns_file, n_returns, (cumulative_inflate) * 100.0, fixed_yearly_cpi * 100.0);
 
 
     srand(c->mc_seed != 0 ? c->mc_seed : (unsigned int)time(NULL));
 
-    double *roi_by_year = malloc(c->sim_years * sizeof(double));
+    historical_returns_t *roi_by_year = malloc(c->sim_years * sizeof(historical_returns_t));
     double *ending_totals = malloc(trials * sizeof(double));
     int *ran_out_years = malloc(trials * sizeof(int));  /* -1 if never ran out */
 

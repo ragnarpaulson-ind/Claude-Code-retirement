@@ -70,6 +70,8 @@ void config_defaults(Config *c) {
     c->mc_returns_file[0] = '\0';
     c->mc_seed = 0;
     c->mc_run = 0;
+    c->mc_in_turn = 0;
+    c->mc_use_historical_cpi = 0;
 }
 
 static char *trim(char *s) {
@@ -224,5 +226,6 @@ void config_apply_overrides(Config *c, int argc, char **argv) {
         else if (strcmp(argv[i], "--registered-b") == 0 && i + 1 < argc) c->person_b_registered_balance = parse_scenario_double(argv[++i]);
 	    else if (strcmp(argv[i], "--monte-carlo") == 0) c->mc_run = 1;
         else if (strcmp(argv[i], "--mc-in-turn") == 0) c->mc_in_turn = 1;
+        else if (strcmp(argv[i], "--use-historical-cpi") == 0) c->mc_use_historical_cpi = 1;
     }
 }

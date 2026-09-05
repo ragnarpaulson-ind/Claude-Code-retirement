@@ -50,7 +50,7 @@ static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, d
     *out_net_of_tax = *out_household_gross + tax_a + tax_b + credit_a + credit_b;
 }
 
-int run_simulation_ex(const Config *c, const char *csv_path, const double *roi_override,
+int run_simulation_ex(const Config *c, const char *csv_path, const historical_returns_t *roi_override,
                        int quiet, SimResult *result_out) {
     FILE *csv = NULL;
     if (csv_path) {
@@ -118,7 +118,7 @@ int run_simulation_ex(const Config *c, const char *csv_path, const double *roi_o
            different rate per simulated calendar year (one draw from the
            historical return series); otherwise it's the flat configured
            rate every year. */
-        double current_roi_pct = roi_override ? roi_override[year - c->sim_start_date.year] : c->roi_annual_pct;
+        double current_roi_pct = roi_override ? roi_override[year - c->sim_start_date.year].roi : c->roi_annual_pct;
 
         if (year != prev_year) {
             /* Print the true Dec 31 closing balances FIRST, before any of
@@ -142,12 +142,28 @@ int run_simulation_ex(const Config *c, const char *csv_path, const double *roi_o
             annual_net_takehome = 0.0;
             prev_year = year;
 
-            gov_inflate *= (1.0 + c->gov_inflation_pct / 100.0);
+            if (c->mc_use_historical_cpi && roi_override) {
+                /* If the Monte Carlo trial is using historical CPI, then the
+                   inflation factor for this year is the one supplied by the
+                   historical data, not the configured fixed rate. */
+                gov_inflate *= (1.0 + roi_override[year - c->sim_start_date.year].cpi / 100.0);
+            } else {
+                gov_inflate *= (1.0 + c->gov_inflation_pct / 100.0);
+            }
             int in_go_slow = c->go_slow_year > 0 &&
                               year >= c->go_slow_year &&
                               year <= c->go_slow_year + c->go_slow_resume_after_years;
-            if (!in_go_slow) personal_inflate *= (1.0 + c->personal_inflation_pct / 100.0);
-	        /* monthly rent increases by inflation eery year */
+            if (!in_go_slow) {
+                if (c->mc_use_historical_cpi && roi_override) {
+                    /* If the Monte Carlo trial is using historical CPI, then the
+                       inflation factor for this year is the one supplied by the
+                       historical data, not the configured fixed rate. */
+                    personal_inflate *= (1.0 + roi_override[year - c->sim_start_date.year].cpi / 100.0);
+                } else {
+                    personal_inflate *= (1.0 + c->personal_inflation_pct / 100.0);
+                }   
+            }
+	        /* monthly rent increases by inflation eery year, for now just always use the config file */
 	        rent_monthly *= (1.0 + c->personal_inflation_pct / 100.0);
 
             /* New January 1: re-baseline the RRIF minimum from this year's

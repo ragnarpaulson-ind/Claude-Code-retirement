@@ -20,6 +20,12 @@ typedef struct {
     char note[128];
 } OneTimeEvent;
 
+typedef struct _historical_returns {
+	int	year;
+	float   roi;
+	float	cpi;
+} historical_returns_t;
+
 typedef struct {
     char name[32];
     Date dob;
@@ -81,6 +87,7 @@ typedef struct {
     unsigned int mc_seed;             /* 0 = seed from current time (non-reproducible) */
     unsigned int mc_run;              /* 0, run single simulation, 1 run monte-carlo. set by CLI */
     unsigned int mc_in_turn;          /* 0, run simulations based on historical date set size, starting from each year in set once. set by CLI */
+    unsigned int mc_use_historical_cpi;  /* 0, use fixed gov_inflation_pct. 1, use historical CPI from mc_returns_file. set by CLI */
 } Config;
 
 void config_defaults(Config *c);
@@ -121,7 +128,7 @@ typedef struct {
    too slow across thousands of runs). result_out, if non-NULL, is filled
    with the ending balances and depletion outcome. Returns 0 only if csv_path
    was given but couldn't be opened; 1 otherwise. */
-int run_simulation_ex(const Config *c, const char *csv_path, const double *roi_override,
+int run_simulation_ex(const Config *c, const char *csv_path, const historical_returns_t *roi_override,
                        int quiet, SimResult *result_out);
 
 /* Runs c->mc_trials trials, each resampling a random annual return path from

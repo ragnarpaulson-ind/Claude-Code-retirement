@@ -19,6 +19,7 @@ static void print_usage(const char *prog) {
     printf("  --registered-b <amount>  Override person B's starting registered (RRSP/RRIF/LIF) balance\n");
     printf("  --monte-carlo            Run Monte Carlo simulation (requires --mc-returns-file)\n");
     printf("  --mc-in-turn             Run Monte Carlo simulations in turn, starting from each year in the historical returns set once (requires mc-returns-file)\n");
+    printf("  --use-historical-cpi     Use historical CPI data for inflation (default: use override values)\n");
     printf("\n");
 }
 

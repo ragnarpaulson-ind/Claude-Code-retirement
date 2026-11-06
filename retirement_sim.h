@@ -119,8 +119,9 @@ typedef struct {
 } SimResult;
 
 /* Full simulation entry point. If roi_override is non-NULL, it must point to
-   an array of c->sim_years annual ROI percentages (one per simulated
-   calendar year, indexed by year-offset from sim_start_date) used instead of
+   an array with one entry per simulated CALENDAR year (indexed by
+   year-offset from sim_start_date; that is sim_years + 1 entries when the
+   run starts partway through a year) used instead of
    the flat c->roi_annual_pct -- this is how Monte Carlo drives a different
    return path through each trial. If quiet is nonzero, all console output is
    suppressed and csv_path may be NULL to skip file output entirely (used for

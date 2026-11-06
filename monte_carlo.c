@@ -170,7 +170,13 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
 
     srand(c->mc_seed != 0 ? c->mc_seed : (unsigned int)time(NULL));
 
-    historical_returns_t *roi_by_year = malloc(c->sim_years * sizeof(historical_returns_t));
+    /* sim.c indexes the return path by calendar-year offset from
+       sim_start_date. A run that starts partway through a year spans one
+       more calendar year than sim_years (e.g. Aug 2026 + 40 years of months
+       runs to Jul 2066 = 41 calendar years), so size the path by calendar
+       years spanned, not by sim_years. */
+    int n_path_years = (c->sim_start_date.month - 1 + c->sim_years * 12 - 1) / 12 + 1;
+    historical_returns_t *roi_by_year = malloc(n_path_years * sizeof(historical_returns_t));
     double *ending_totals = malloc(trials * sizeof(double));
     int *ran_out_years = malloc(trials * sizeof(int));  /* -1 if never ran out */
 
@@ -203,14 +209,14 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
                historical returns file, then wraps around to the beginning of
                the file if the simulation is longer than the number of years in
                the file. */
-            for (int y = 0; y < c->sim_years; y++) {
+            for (int y = 0; y < n_path_years; y++) {
                 int idx = (t + y) % n_returns;
                 roi_by_year[y] = returns[idx];
             }
         } else {
             /* Standard bootstrap resampling: each trial draws a random year
                independently with replacement for each simulated year. */
-            for (int y = 0; y < c->sim_years; y++) {
+            for (int y = 0; y < n_path_years; y++) {
                 roi_by_year[y] = returns[rand() % n_returns];
             }
         }

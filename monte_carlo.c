@@ -27,7 +27,12 @@ static int load_return_series(const char *path, historical_returns_t **out, int 
     }
 
     int capacity = 128, count = 0;
-    historical_returns_t *returns = malloc(capacity * sizeof(historical_returns_t));
+    historical_returns_t *returns = malloc(capacity * sizeof(*returns));
+    if (!returns) {
+        fprintf(stderr, "Out of memory reading historical returns file '%s'\n", path);
+        fclose(f);
+        return 0;
+    }
     char line[256];
 
     while (fgets(line, sizeof(line), f)) {
@@ -35,8 +40,17 @@ static int load_return_series(const char *path, historical_returns_t **out, int 
         while (isspace((unsigned char)*l)) l++;
         if (*l == 0 || *l == '#') continue;
         if (count >= capacity) {
+            /* Grow by element size (previously sized as double, which
+               shrank the buffer and overflowed past 128 data rows). */
             capacity *= 2;
-            returns = realloc(returns, capacity * sizeof(double));
+            historical_returns_t *grown = realloc(returns, capacity * sizeof(*returns));
+            if (!grown) {
+                fprintf(stderr, "Out of memory reading historical returns file '%s'\n", path);
+                free(returns);
+                fclose(f);
+                return 0;
+            }
+            returns = grown;
         }
 
         /* expect "year,return,cpi"  -- */

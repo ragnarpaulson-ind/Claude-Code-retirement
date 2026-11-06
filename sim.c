@@ -25,10 +25,38 @@ static int is_age_65_plus(Date current, Date age65) {
     return date_ge(current, age65);
 }
 
+static double min3(double a, double b, double c) {
+    double m = a < b ? a : b;
+    return m < c ? m : c;
+}
+
+/* Pension-income splitting rebalance: given each spouse's taxable income
+ * (already reflecting the current split), shift attribution of RRIF income
+ * from the higher-income spouse to the lower one until the two are equal,
+ * capped so the total transferred from either spouse never exceeds cap_x
+ * (50% of that spouse's RRIF withdrawal, or 0 if not yet eligible). Moving
+ * an existing transfer back toward zero is always allowed. Returns the new
+ * split (+ = A's income reported on B's return). */
+static double equalize_split(double taxable_a, double taxable_b, double split,
+                             double cap_a, double cap_b) {
+    double t = (taxable_a - taxable_b) / 2.0;
+    double s = split + t;
+    if (t > 0) {
+        double hi = cap_a > split ? cap_a : split;
+        if (s > hi) s = hi;
+    } else if (t < 0) {
+        double lo = -cap_b < split ? -cap_b : split;
+        if (s < lo) s = lo;
+    }
+    return s;
+}
+
 /* Computes tax, age credit, household gross, and net-of-tax for a given pair
  * of retirement-fund draws. Pulled out into its own function because the
  * gross-up solve below needs to re-run this same calculation several times
- * for different candidate draw amounts. */
+ * for different candidate draw amounts. draw_a/draw_b are the registered
+ * amounts ATTRIBUTED to each person's tax return (after pension-income
+ * splitting), not necessarily the cash taken from each person's account. */
 static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, double gov_inflate,
                          double fixed_a, double fixed_b, double draw_a, double draw_b,
                          double *out_tax_a, double *out_tax_b,
@@ -59,7 +87,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
         fprintf(csv, "date,reg_a_wd, reg_b_wd,household_gross,tax_a,tax_b,age_credit_a,age_credit_b,"
                      "net_of_tax,non_reg_shortfall_draw,tfsa_topup,jan_nonreg_to_tfsa_sweep,net_takehome,tfsa_balance,"
-                     "registered_balance_a,non-registered_balance_a,registered_balance_b,non-registered_balance_b,rrif_min_a,rrif_min_b,event\n");
+                     "registered_balance_a,non-registered_balance_a,registered_balance_b,non-registered_balance_b,rrif_min_a,rrif_min_b,"
+                     "split_a_to_b,event\n");
     }
 
     Date age65_a, age65_b;
@@ -100,6 +129,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     int money_exhausted_reported = 0;
     Date money_exhausted_date = {0,0,0};
     int money_exhausted_months = 0;
+    int both_over_target_reported = 0;
+    Date both_over_target_date = {0,0,0};
+    int both_over_target_months = 0;
 
     double annual_net_takehome = 0.0;
     int total_months = c->sim_years * 12;
@@ -194,6 +226,59 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             }
         }
 
+        /* One-time events are applied at the START of the month, before
+           income and draws are computed, so a windfall (e.g. a home sale)
+           can fund that same month's spending and an expense comes out of
+           non-registered before the shortfall draw -- previously they were
+           applied after the draws, forcing a one-month taxable registered
+           draw when an event coincided with a jump in spending.
+           Positive events split evenly into the two non-registered
+           accounts (unlike registered accounts they aren't fully taxable on
+           withdrawal). Negative events come out of non-registered first
+           (proportionally), then any remainder from registered, split
+           evenly; if one registered account can't cover its half, the
+           other covers the rest. */
+        double event_amount = 0.0;
+        char event_note[256] = "";
+        for (int e = 0; e < c->n_events; e++) {
+            if (c->events[e].date.year == year && c->events[e].date.month == month) {
+                event_amount += c->events[e].amount;
+                if (event_note[0]) strncat(event_note, "; ", sizeof(event_note) - strlen(event_note) - 1);
+                strncat(event_note, c->events[e].note, sizeof(event_note) - strlen(event_note) - 1);
+            }
+        }
+        if (event_amount < 0) {
+            double nonreg_total = fund_a_nonreg + fund_b_nonreg;
+            if (nonreg_total > 0) {
+                double nonreg_draw_a = event_amount * (fund_a_nonreg / nonreg_total);
+                double nonreg_draw_b = event_amount * (fund_b_nonreg / nonreg_total);
+
+                if (nonreg_draw_a < -fund_a_nonreg) {
+                    nonreg_draw_b += (nonreg_draw_a + fund_a_nonreg);
+                    nonreg_draw_a = -fund_a_nonreg;
+                }
+                if (nonreg_draw_b < -fund_b_nonreg) {
+                    nonreg_draw_b = -fund_b_nonreg;
+                }
+
+                fund_a_nonreg += nonreg_draw_a;
+                fund_b_nonreg += nonreg_draw_b;
+
+                event_amount -= (nonreg_draw_a + nonreg_draw_b);
+            }
+            if (event_amount < 0) {
+                /* remainder from registered accounts */
+                fund_a += event_amount / 2.0;
+                fund_b += event_amount / 2.0;
+                if (fund_a < 0) { fund_b += fund_a; fund_a = 0; }
+                if (fund_b < 0) { fund_a += fund_b; fund_b = 0; }
+                if (fund_a < 0) fund_a = 0;
+            }
+        } else if (event_amount > 0) {
+            fund_a_nonreg += event_amount / 2.0;
+            fund_b_nonreg += event_amount / 2.0;
+        }
+
         int retired = date_ge(cur, c->retirement_date);
 
         double cpp_a = date_ge(cur, c->a.cpp_start) ? c->a.cpp_at_65 * cpp_factor_a * gov_inflate : 0.0;
@@ -213,33 +298,84 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double fixed_b = cpp_b + oas_b + non_reg_income_b;
 
         double target_gross_pp = retired ? c->target_gross_monthly * personal_inflate : 0.0;
-        double base_draw_a = retired ? (target_gross_pp - fixed_a) : 0.0;
-        double base_draw_b = retired ? (target_gross_pp - fixed_b) : 0.0;
-        if (base_draw_a < 0) base_draw_a = 0;
-        if (base_draw_b < 0) base_draw_b = 0;
+        /* need_x: the registered draw that lands person x exactly on their
+           gross target (before the RRIF-minimum floor is applied). */
+        double need_a = retired ? (target_gross_pp - fixed_a) : 0.0;
+        double need_b = retired ? (target_gross_pp - fixed_b) : 0.0;
+        if (need_a < 0) need_a = 0;
+        if (need_b < 0) need_b = 0;
+        double base_draw_a = need_a;
+        double base_draw_b = need_b;
 
         /* RRIF minimum withdrawal is a hard floor, independent of the
            spending target -- applies whether or not it's actually needed
-           this month. Currently the target-driven draw is comfortably above
-           it, so this has no visible effect; it starts to matter once a
-           non-registered account can absorb spending instead, since without
-           this floor the sim would otherwise draw the registered accounts
-           down slower than the law requires. */
+           this month. */
         if (base_draw_a < rrif_monthly_min_a) base_draw_a = rrif_monthly_min_a;
         if (base_draw_b < rrif_monthly_min_b) base_draw_b = rrif_monthly_min_b;
 
-        /* Physically, a registered account can only pay out what it holds --
-           but real pension-income splitting (CRA form T1032) lets a couple
-           reallocate up to 50% of eligible pension/RRIF income to the other
-           spouse's tax return, regardless of which account the cash actually
-           came from. So once one person's account runs dry, the other
-           account supplies the cash while tax attribution stays exactly as
-           if each had withdrawn their own share. This has to happen BEFORE
-           net_of_tax/shortfall are computed below -- otherwise the shortfall
-           (and the TFSA/non-reg top-up sized against it) gets based on
-           phantom income the accounts can't actually pay, and once a
-           registered account is truly dry the TFSA silently stops being
-           drawn down to cover the gap. */
+        /* Pension-income splitting (CRA T1032). If one person's RRIF minimum
+           pushes their income above the gross target, attribute that excess
+           to the spouse's tax return and cut the spouse's own RRIF
+           withdrawal by the same amount (never below the spouse's own RRIF
+           minimum). If both end up above target anyway, equalize the two
+           taxable incomes. Each transfer is capped at 50% of the
+           transferor's RRIF withdrawal, and RRIF income is only eligible
+           once the transferor is 65 or older in that calendar year.
+           split_a_to_b is tax attribution only: + = A's income reported on
+           B's return, - = B's income reported on A's return. base_draw_a/b
+           remain the CASH taken from each account. */
+        double split_a_to_b = 0.0;
+        int split_eligible_a = (year - c->a.dob.year >= 65);
+        int split_eligible_b = (year - c->b.dob.year >= 65);
+        if (retired) {
+            double cap_a = split_eligible_a ? 0.5 * base_draw_a : 0.0;
+            double cap_b = split_eligible_b ? 0.5 * base_draw_b : 0.0;
+            double excess_a = base_draw_a - need_a;
+            double excess_b = base_draw_b - need_b;
+
+            /* Step 1: absorb one person's excess into the other's room. */
+            if (excess_a > 0.005 && excess_b <= 0.005) {
+                double t = min3(excess_a, base_draw_b - rrif_monthly_min_b, cap_a);
+                if (t > 0) { base_draw_b -= t; split_a_to_b += t; }
+            } else if (excess_b > 0.005 && excess_a <= 0.005) {
+                double t = min3(excess_b, base_draw_a - rrif_monthly_min_a, cap_b);
+                if (t > 0) { base_draw_a -= t; split_a_to_b -= t; }
+            }
+
+            /* Step 2: if one person is still above target and the other is
+               at or above it (i.e. the spouse's own RRIF minimum stopped the
+               absorb step, so the full excess would push them over too),
+               split evenly (tax attribution only, no further cash change). */
+            double taxable_a = fixed_a + base_draw_a - split_a_to_b;
+            double taxable_b = fixed_b + base_draw_b + split_a_to_b;
+            int a_over = taxable_a > target_gross_pp + 0.005;
+            int b_over = taxable_b > target_gross_pp + 0.005;
+            int a_at_or_over = taxable_a >= target_gross_pp - 0.005;
+            int b_at_or_over = taxable_b >= target_gross_pp - 0.005;
+            if ((a_over && b_at_or_over) || (b_over && a_at_or_over)) {
+                if (taxable_a > taxable_b) {
+                    double room = cap_a - (split_a_to_b > 0 ? split_a_to_b : 0.0);
+                    double t = (taxable_a - taxable_b) / 2.0;
+                    if (t > room) t = room;
+                    if (t > 0) split_a_to_b += t;
+                } else if (taxable_b > taxable_a) {
+                    double room = cap_b - (split_a_to_b < 0 ? -split_a_to_b : 0.0);
+                    double t = (taxable_b - taxable_a) / 2.0;
+                    if (t > room) t = room;
+                    if (t > 0) split_a_to_b -= t;
+                }
+                if (!both_over_target_reported) { both_over_target_reported = 1; both_over_target_date = cur; }
+                both_over_target_months++;
+            }
+        }
+
+        /* Physically, a registered account can only pay out what it holds.
+           Once one person's account runs dry, the other account supplies the
+           cash while tax attribution stays as if each had withdrawn their
+           own share. This has to happen BEFORE net_of_tax/shortfall are
+           computed below -- otherwise the shortfall (and the TFSA/non-reg
+           top-up sized against it) gets based on phantom income the
+           accounts can't actually pay. */
         double fund_a_avail = fund_a, fund_b_avail = fund_b;
         double cash_a = base_draw_a < fund_a_avail ? base_draw_a : fund_a_avail;
         double cash_b = base_draw_b < fund_b_avail ? base_draw_b : fund_b_avail;
@@ -261,14 +397,17 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             /* Both accounts combined can't cover even the base/RRIF-floor
                draw -- a real plan failure at the registered-fund level, not
                just one account running dry. Taxable income has to match the
-               cash that genuinely exists. */
-            draw_a = cash_a;
-            draw_b = cash_b;
+               cash that genuinely exists; re-cap the split at 50% of what
+               was actually withdrawn. */
+            if (split_a_to_b > 0 && split_a_to_b > 0.5 * cash_a) split_a_to_b = 0.5 * cash_a;
+            if (split_a_to_b < 0 && -split_a_to_b > 0.5 * cash_b) split_a_to_b = -0.5 * cash_b;
+            draw_a = cash_a - split_a_to_b;
+            draw_b = cash_b + split_a_to_b;
             if (!household_shortfall_reported) { household_shortfall_reported = 1; household_shortfall_date = cur; }
             household_shortfall_months++;
         } else {
-            draw_a = base_draw_a;
-            draw_b = base_draw_b;
+            draw_a = base_draw_a - split_a_to_b;
+            draw_b = base_draw_b + split_a_to_b;
         }
         /* Registered capacity NOT used by the base draw -- still available
            later this month if TFSA + non-reg can't cover the rest of the
@@ -328,17 +467,27 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (retired && remaining > 0.01 && reg_leftover_total > 0.01) {
             double net_of_tax_base = net_of_tax;
             double extra = remaining < reg_leftover_total ? remaining : reg_leftover_total;
-            double extra_a = 0.0, extra_b = 0.0;
+            double extra_a = 0.0, extra_b = 0.0, ds = 0.0;
 
+            /* Cash for the extra draw comes from each account in proportion
+               to its leftover capacity, but the TAX attribution is then
+               rebalanced via pension-income splitting so the two taxable
+               incomes stay as equal as the 50% cap allows -- otherwise the
+               larger account's owner absorbs most of the extra income and
+               a higher bracket. ds = change to split_a_to_b for this extra. */
             for (int iter = 0; iter < 25; iter++) {
                 if (extra < 0) extra = 0;
                 if (extra > reg_leftover_total) extra = reg_leftover_total;
                 extra_a = extra * (reg_leftover_a / reg_leftover_total);
                 extra_b = extra * (reg_leftover_b / reg_leftover_total);
+                double cap_a2 = split_eligible_a ? 0.5 * (cash_a + extra_a) : 0.0;
+                double cap_b2 = split_eligible_b ? 0.5 * (cash_b + extra_b) : 0.0;
+                ds = equalize_split(fixed_a + draw_a + extra_a, fixed_b + draw_b + extra_b,
+                                    split_a_to_b, cap_a2, cap_b2) - split_a_to_b;
 
                 double ta, tb, ca, cb, hg, net2;
                 compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b,
-                            draw_a + extra_a, draw_b + extra_b, &ta, &tb, &ca, &cb, &hg, &net2);
+                            draw_a + extra_a - ds, draw_b + extra_b + ds, &ta, &tb, &ca, &cb, &hg, &net2);
                 double net_gain = net2 - net_of_tax_base;
                 double diff = remaining - net_gain;
                 if (fabs(diff) < 0.01) { extra += diff; break; }
@@ -348,9 +497,16 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             if (extra > reg_leftover_total) extra = reg_leftover_total;
             extra_a = extra * (reg_leftover_a / reg_leftover_total);
             extra_b = extra * (reg_leftover_b / reg_leftover_total);
+            {
+                double cap_a2 = split_eligible_a ? 0.5 * (cash_a + extra_a) : 0.0;
+                double cap_b2 = split_eligible_b ? 0.5 * (cash_b + extra_b) : 0.0;
+                ds = equalize_split(fixed_a + draw_a + extra_a, fixed_b + draw_b + extra_b,
+                                    split_a_to_b, cap_a2, cap_b2) - split_a_to_b;
+            }
 
-            draw_a += extra_a;
-            draw_b += extra_b;
+            draw_a += extra_a - ds;
+            draw_b += extra_b + ds;
+            split_a_to_b += ds;
             cash_a += extra_a;
             cash_b += extra_b;
             compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b,
@@ -370,52 +526,11 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             money_exhausted_months++;
         }
 
-        /* one-time events this month */
-        double event_amount = 0.0;
-        char event_note[256] = "";
-        for (int e = 0; e < c->n_events; e++) {
-            if (c->events[e].date.year == year && c->events[e].date.month == month) {
-                event_amount += c->events[e].amount;
-                if (event_note[0]) strncat(event_note, "; ", sizeof(event_note) - strlen(event_note) - 1);
-                strncat(event_note, c->events[e].note, sizeof(event_note) - strlen(event_note) - 1);
-            }
-        }
-
         tfsa_balance = tfsa_balance * (1.0 + current_roi_pct / 1200.0) - tfsa_topup;
         tfsa_contribution_room_change += tfsa_topup;
 
-        /* One-time events currently split evenly across both non-registered
-           accounts first, then, if event is negative and non-registered are empty, remove
-           from registered accounts. This is a bit arbitrary, but the idea is that
-           windfalls like a home sale should route there instead, since
-           unlike these registered accounts it isn't fully taxable on
-           withdrawal. */
-        if (event_amount < 0) {
-            double nonreg_total = fund_a_nonreg + fund_b_nonreg;
-            if (nonreg_total > 0) {
-                double nonreg_draw_a = event_amount * (fund_a_nonreg / nonreg_total);
-                double nonreg_draw_b = event_amount * (fund_b_nonreg / nonreg_total);
-
-                if (nonreg_draw_a < -fund_a_nonreg) {
-                    nonreg_draw_b += (nonreg_draw_a + fund_a_nonreg);
-                    nonreg_draw_a = -fund_a_nonreg;
-                }
-                if (nonreg_draw_b < -fund_b_nonreg) {
-                    nonreg_draw_b = -fund_b_nonreg;
-                }
-
-                fund_a_nonreg += nonreg_draw_a;
-                fund_b_nonreg += nonreg_draw_b;
-
-                event_amount -= (nonreg_draw_a + nonreg_draw_b);
-            }
-        } else if (event_amount > 0) {
-            fund_a_nonreg += event_amount / 2.0;
-            fund_b_nonreg += event_amount / 2.0;
-            event_amount = 0.0;
-        }
-        fund_a = fund_a * (1.0 + current_roi_pct / 1200.0) - cash_a + event_amount / 2.0;
-        fund_b = fund_b * (1.0 + current_roi_pct / 1200.0) - cash_b + event_amount / 2.0;
+        fund_a = fund_a * (1.0 + current_roi_pct / 1200.0) - cash_a;
+        fund_b = fund_b * (1.0 + current_roi_pct / 1200.0) - cash_b;
 
         if (tfsa_balance < 0) {
             if (!tfsa_depleted_reported) { tfsa_depleted_reported = 1; tfsa_depleted_date = cur; }
@@ -431,11 +546,12 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         }
 
         if (csv) {
-            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
+            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
                     year, month, draw_a, draw_b,
                     household_gross, tax_a, tax_b, credit_a, credit_b,
                     net_of_tax, non_reg_draw_total, tfsa_topup, jan_sweep_amount, net_takehome, tfsa_balance,
-                    fund_a, fund_a_nonreg, fund_b, fund_b_nonreg, rrif_monthly_min_a, rrif_monthly_min_b, event_note);
+                    fund_a, fund_a_nonreg, fund_b, fund_b_nonreg, rrif_monthly_min_a, rrif_monthly_min_b,
+                    split_a_to_b, event_note);
         }
     }
 
@@ -482,6 +598,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (fund_b_depleted_reported)
             printf("NOTE: Person B's registered account was exhausted in %04d-%02d (draws continued, sourced from Person A's account).\n",
                    fund_b_depleted_date.year, fund_b_depleted_date.month);
+        if (both_over_target_reported)
+            printf("NOTE: RRIF minimums pushed both spouses above the gross target in %d month(s), starting %04d-%02d; taxable income split evenly (subject to the 50%% pension-splitting cap).\n",
+                   both_over_target_months, both_over_target_date.year, both_over_target_date.month);
         if (household_shortfall_reported)
             printf("WARNING: registered funds combined were insufficient to meet the base/RRIF-minimum draw in %d month(s), starting %04d-%02d.\n",
                    household_shortfall_months, household_shortfall_date.year, household_shortfall_date.month);

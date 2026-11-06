@@ -1,33 +1,36 @@
 # Retirement Spending Simulator (C)
 
-A standalone retirement spending simulator that models monthly cash flows,
-CPP/OAS, tax, registered account withdrawals, TFSA use, and one-time events.
-This application reads a configuration file and optionally an events file,
-then writes a month-by-month projection of retirement balances and income.
+A standalone retirement spending simulator for a couple. It models monthly
+cash flows, CPP/OAS, per-person tax, registered account withdrawals (with RRIF
+minimums and pension-income splitting), TFSA and non-registered accounts,
+rent, and one-time events. It reads a configuration file and optionally an
+events file, then writes a month-by-month projection of income and balances.
 
-To keep it simple, this program does not include a pre-retirement/income phase.  
-You will need to use other tools to forecast your savings at retirement.  As 
-such the 'retire-date' configuration is no longer very relevant.
+To keep it simple, this program does not include a pre-retirement/income phase.
+You will need to use other tools to forecast your savings at retirement. As
+such the `retirement_date` configuration is no longer very relevant.
 
-This simulation assumes the government increases CPP/OAS/tax brackets/tax credits 
-each year by a configurable inflation factor (default 2%). Which may not be true.
+This simulation assumes the government increases CPP/OAS/tax brackets/tax
+credits each year by a configurable inflation factor (default 2%), which may
+not be true.
 
-Monte-Carlo scores are based on provided historical data.  A future enhancement 
-could be to include a t-skewed student-t distribution of returns.  Aside from coding 
-this would require significant user knowledge to set the configuarable properties.
+Monte Carlo scores are based on provided historical data. A future enhancement
+could be to include a skewed Student-t distribution of returns. Aside from
+coding, this would require significant user knowledge to set the configurable
+properties.
 
 ## Build & run
 
 From the project directory:
 
 ```
-cc -std=c11 -Wall -Wextra -O2 -o retirement_sim main.c config.c tax.c sim.c -lm
+make
 ```
 
 or
 
 ```
-make
+cc -std=c11 -Wall -Wextra -O2 -o retirement_sim main.c config.c tax.c rrif.c sim.c monte_carlo.c -lm
 ```
 
 Then run:
@@ -36,94 +39,104 @@ Then run:
 ./retirement_sim --config sample_config.cfg
 ```
 
-The default output is `retirement_projection.csv` and an annual summary is
+The default output is `retirement_projection.csv`, and an annual summary is
 printed to the console.
 
-Run `./retirement_sim --help` for CLI options, including overrides for:
-- `--roi`
-- `--inflation`
-- `--gov-inflation`
-- `--target-net`
-- `--target-gross`
-- `--years`
-- `--retire-date`
-- `--tfsa`
-- `--registered-a`
-- `--registered-b`
-- `--monte-carlo`
-- `--mc-in-turn`
+Run `./retirement_sim --help` for all options:
+
+| Option | Effect |
+|---|---|
+| `--config <file>` | Config file (required) |
+| `--out <file.csv>` | Output CSV path (default `retirement_projection.csv`) |
+| `--roi <pct>` | Override annual investment return |
+| `--inflation <pct>` | Override personal (spending) inflation |
+| `--gov-inflation <pct>` | Override CPP/OAS/tax-bracket inflation |
+| `--target-net <amount>` | Override monthly household net spending target |
+| `--target-gross <amount>` | Override monthly per-person gross income target |
+| `--years <n>` | Override simulated horizon |
+| `--retire-date <YYYY-MM-DD>` | Override retirement date |
+| `--tfsa <amount>` | Override starting TFSA balance |
+| `--registered-a <amount>` / `--registered-b <amount>` | Override starting registered balances |
+| `--monte-carlo` | Run Monte Carlo (bootstrap) using `mc_returns_file` |
+| `--mc-in-turn` | Run one Monte Carlo trial per starting year in the returns file |
+| `--use-historical-cpi` | In Monte Carlo, use the file's CPI column instead of the fixed inflation rates |
 
 ## What the simulator models
 
 The simulator advances month by month. For each month it:
 
-1. Computes CPP and OAS income for each person, applying the standard
-   early/late adjustment factor:
-   - CPP starts early: 0.6% reduction per month early.
-   - CPP starts late: 0.7% bonus per month late.
-   - OAS starts late: 0.6% bonus per month late.
+1. **Applies one-time events** scheduled for that month, before anything
+   else, so a windfall can fund that month's spending and an expense comes
+   out before the month's draws:
+   - Positive amounts are split evenly into the two non-registered accounts.
+   - Negative amounts come out of non-registered first (proportionally), then
+     any remainder from registered accounts, split evenly; if one registered
+     account can't cover its half, the other covers the rest.
 
-2. Computes investment income from non-registered balances at the current
-   annual ROI rate.
+2. **Computes fixed income** for each person:
+   - CPP and OAS, with the standard early/late adjustment factors: CPP early
+     0.6% reduction per month, CPP late 0.7% bonus per month, OAS late 0.6%
+     bonus per month.
+   - Non-registered yield: ROI on the non-registered balance, paid monthly
+     and fully taxable. Non-registered principal does not compound.
 
-3. Determines each person’s target gross income for retirement months using
-   `target_gross_monthly` and personal spending inflation.
+3. **Draws from each person's registered account** (RRSP/RRIF/LIF) to bring
+   their taxable income up to `target_gross_monthly` (a per-person target,
+   inflated by personal inflation), never less than the legal RRIF minimum.
+   The RRIF minimum is recalculated each January 1 from that account's
+   opening balance and age, then spread evenly across the year.
 
-4. Draws from each person’s registered account (RRSP/RRIF/LIF) to reach their
-   individual gross target, subject to the legal RRIF minimum withdrawal.
-   - The RRIF minimum is recalculated each January 1 from that account’s
-     opening balance and age, then spread evenly across the year.
-   - If one person’s registered account is empty, the other person’s account
-     can supply cash to cover the gross draw while keeping the original tax
-     attribution.
+4. **Applies pension-income splitting** (CRA form T1032) to avoid paying more
+   tax than necessary when a RRIF minimum forces income above target:
+   - If one person's RRIF minimum pushes them over target, the excess is
+     reported on the other person's return, and the other person withdraws
+     that much less from their own RRIF (never below their own minimum).
+   - If both people still end up at or above target, their taxable incomes
+     are made equal. The first month this happens is reported at the end of
+     the run.
+   - No more than 50% of a person's RRIF withdrawal can be transferred, and
+     only once that person is 65 or older in the calendar year.
+   - Splitting changes whose tax return the income is reported on, not whose
+     account the cash comes from.
 
-5. Computes tax and age credits separately for each person, using the
-   configured progressive tax brackets and the 65+ age credit rules.
+5. **Sources cash across accounts**: if one person's registered account is
+   empty, the other's supplies the cash while the tax attribution stays the
+   same.
 
-6. If household net income after tax is below the inflated household spending
-   target (`target_net_monthly` plus rent if applicable), the simulator
-   covers the shortfall in this order:
-   - non-registered balances first, splitting the draw proportionally across
-     the two non-reg accounts if both exist.
-   - TFSA next, up to the available TFSA balance.
-   - any remaining shortfall is covered by an additional taxable draw from the
-     remaining registered capacity, sized iteratively so that the extra
-     withdrawal nets the needed cash after tax.
+6. **Computes tax and age credits** separately for each person, using the
+   configured progressive tax brackets and the 65+ age credit with its
+   income-tested clawback.
 
-7. Applies scheduled one-time events in the month they occur.
+7. **Covers any shortfall** against the household net spending target
+   (`target_net_monthly`, plus rent once it starts) in this order:
+   - non-registered principal, split proportionally across the two accounts;
+   - TFSA, up to its balance;
+   - an additional taxable registered draw, sized iteratively so it nets the
+     needed cash after tax, and limited to what the registered accounts
+     actually hold. Its cash comes from each account in proportion to what's
+     left, but its tax attribution is rebalanced through income splitting so
+     the two incomes stay as equal as the 50% cap allows.
 
-8. Applies annual inflation and return updates on each January 1:
-   - `personal_inflation_pct` inflates spending targets and rent.
-   - `gov_inflation_pct` inflates CPP/OAS amounts, tax brackets, and credits.
-   - `tfsa_contribution_room` increases by the configured annual grant.
-   - non-registered cash is swept into TFSA if contribution room is available.
+8. **On each January 1**:
+   - prints the prior year's closing balances (before any January activity);
+   - applies personal and government inflation;
+   - recalculates RRIF minimums;
+   - adds TFSA contribution room: the annual grant plus the previous year's
+     TFSA withdrawals;
+   - sweeps non-registered money into the TFSA, up to the available room.
 
-## Withdrawal rules and order
-
-The simulator uses this withdrawal order when a retirement spending gap exists:
-
-1. Registered account gross draw to satisfy each person’s `target_gross_monthly`.
-2. Non-registered account draw to cover any net shortfall.
-3. TFSA draw to cover remaining shortfall.
-4. Additional registered draw if needed to cover what TFSA cannot.
-
-Important details:
-- Registered account withdrawals are first used to satisfy the gross income
-  target and RRIF minimum requirement.
-- A spouse’s registered account may backstop the other spouse’s shortfall
-  while preserving the original taxable income split.
-- TFSA is used only after non-registered cash is exhausted.
-- If the household still cannot meet the spending target after all available
-  sources are drawn, the run is marked as money exhausted.
+If the household still can't meet its spending target after every source has
+been drawn as far as possible, the run reports that money ran out.
 
 ## Inflation definitions
 
 The simulator tracks two separate inflation rates:
 
 - `personal_inflation_pct`:
-  - Applies to spending targets like `target_net_monthly` and
-    `target_gross_monthly`.
-  - Also increases rent if `rent_monthly` is set.
+  - Applies to spending targets (`target_net_monthly` and
+    `target_gross_monthly`). These raises pause during the optional "go slow"
+    window (`go_slow_year` / `go_slow_resume_after_years`).
+  - Also increases rent every year (rent ignores the go-slow window).
   - Represents the inflation of household living costs.
 
 - `gov_inflation_pct`:
@@ -131,42 +144,52 @@ The simulator tracks two separate inflation rates:
     thresholds.
   - Represents government-indexed benefit and tax inflation.
 
-This separation lets the model treat living-cost inflation and government
-benefit/tax inflation independently.
+With `--use-historical-cpi`, Monte Carlo trials replace both rates with the
+CPI column from the returns file (rent still uses `personal_inflation_pct`).
 
 ## Monte Carlo simulation
 
-Monte Carlo mode resamples a historical annual return series to test many
+Monte Carlo mode replays a historical annual return series to test many
 possible return paths.
 
-- Input file: `mc_returns_file` in the config holds one annual return value
-  per usable line.
-- `--monte-carlo` enables standard bootstrap mode, where each simulated year
-  draws a random annual return from the historical series with replacement.
-- `--mc-in-turn` runs one trial per starting year in the historical file,
-  then wraps around if the simulation horizon is longer than the file.
+- `mc_returns_file` must have one line per year in the form
+  `year,return_pct,cpi_pct`, with consecutive years. Lines starting with `#`
+  and blank lines are ignored. Example:
+
+  ```
+  1987,8.02,4.36
+  1988,11.80,4.10
+  ```
+
+- `--monte-carlo`: each simulated year draws a random year from the file,
+  independently and with replacement. `mc_trials` sets the number of trials
+  (default 10000) and `mc_seed` makes runs reproducible (0 = seed from the
+  clock).
+- `--mc-in-turn`: runs one trial per starting year in the file, wrapping
+  around if the simulation is longer than the file.
 
 Monte Carlo output includes:
-- Success rate: percentage of trials where money never ran out.
+- Success rate: the percentage of trials where money never ran out.
 - Ending balance percentiles across trials (p10, p25, median, p75, p90).
-- A detail CSV `monte_carlo_results.csv` with trial-by-trial outcomes.
+- For failed trials, the earliest, median and latest year money ran out.
+- A detail CSV, `monte_carlo_results.csv`, with trial-by-trial outcomes.
 
 ## Inputs
 
-`sample_config.cfg` defines the simulation assumptions:
-- personal data: DOB, CPP/OAS start dates, benefit amounts.
-- account balances: TFSA, registered, non-registered.
-- spending targets: `target_net_monthly`, `target_gross_monthly`.
-- inflation rates and ROI.
-- tax brackets, age-credit rules, rent, one-time events.
+`sample_config.cfg` defines the simulation assumptions (all values are
+placeholders; the sample balances are $0):
+- personal data: names, dates of birth, CPP/OAS start dates and amounts at 65.
+- account balances: TFSA (combined) and per-person registered and
+  non-registered balances, plus TFSA contribution room and annual grant.
+- spending targets: `target_net_monthly` (household, after tax) and
+  `target_gross_monthly` (per person, before tax).
+- ROI, inflation rates, and the go-slow window.
+- tax brackets, age-credit rules, rent, the events file, and Monte Carlo
+  settings.
 
-`sample_events.csv` lists dated one-time cash flows such as home sales,
-renovations, or downsizing. Positive amounts are inflows; negative amounts are
-expenses.
+### Events file format
 
-### Sample events format
-
-The events file is a simple CSV with one event per row. Each event has:
+The events file is a simple CSV with one event per row:
 - `date`: year-month-day when the event occurs
 - `amount`: positive for cash inflow, negative for expense
 - `note`: a short description of the event
@@ -179,30 +202,52 @@ Example rows:
 2035-03-15,30000,downsizing relocation cash
 ```
 
-Events are applied in the month they occur and affect the shared cash
-balances used by the simulation.
+Events apply at the start of the month they fall in.
 
 ## Output
 
-The simulator writes `retirement_projection.csv` containing monthly cash flow
-and balance details, and prints an annual summary to the console. In Monte
-Carlo mode it also writes `monte_carlo_results.csv` with per-trial outcomes.
+The simulator writes `retirement_projection.csv` with one row per month and
+prints an annual summary to the console. In Monte Carlo mode it also writes
+`monte_carlo_results.csv`.
+
+Notes on the projection columns:
+- `reg_a_wd` / `reg_b_wd` are the registered income reported on each
+  person's tax return after income splitting.
+- `split_a_to_b` is the amount moved between returns by income splitting:
+  positive means part of A's income is reported on B's return, negative the
+  reverse.
+- Actual cash withdrawn from A's account is `reg_a_wd + split_a_to_b`; from
+  B's account it is `reg_b_wd - split_a_to_b`.
+- `household_gross` is the couple's combined taxable income and isn't
+  affected by splitting.
+- `rrif_min_a` / `rrif_min_b` are the monthly RRIF minimums for that year.
 
 ## File overview
 
 - `main.c`: CLI parsing and program entry.
 - `config.c` / `retirement_sim.h`: config parsing, defaults, events loading,
-  and simulation data structures.
+  CLI overrides, and data structures.
+- `sim.c`: monthly simulation engine and output.
 - `tax.c`: progressive tax calculation and age-credit logic.
-- `sim.c`: monthly simulation engine and output generation.
-- `monte_carlo.c`: Monte Carlo trial runner and bootstrap logic.
-- `dateutil.h`: date utilities used by the monthly loop.
+- `rrif.c`: CRA RRIF minimum withdrawal factors.
+- `monte_carlo.c`: Monte Carlo trial runner.
+- `dateutil.h`: date utilities.
+- `CLAUDE.md`: project context and working notes for Claude agents.
 - `sample_config.cfg`: example configuration file to edit for your case.
 - `sample_events.csv`: example one-time events schedule.
-- `example_returns.csv`: example of historical investment returns for Monte-Carlo.
-- `proxy-30-year.csv`: Perplexity generated estimate of 30 year returns for a 10/60/30 portfolio based on weighted averages.
-- `sp-30-year.csv`: Perplexity generated report on 30 years of S&P 500
-- `tsx.csv`:  Perplexity generated report of 75 years of TSX.
+
+Return and inflation data files. Only `perplexity-40-year.csv` is currently
+in the `year,return_pct,cpi_pct` format Monte Carlo expects; the others are
+reference data in older formats and would need converting first:
+- `perplexity-40-year.csv`: Perplexity-generated 40-year blended series (MSCI
+  EAFE, TSX and S&P 500 at 20% each, plus 0.8% for fixed income) with
+  Canadian CPI.
+- `canada_inflation_1986_2025.csv`: Canadian annual inflation, 1986–2025.
+- `proxy-30-year.csv`: Perplexity-generated estimate of 30 years of returns
+  for a 10/60/30 portfolio based on weighted averages.
+- `sp-30-year.csv`: Perplexity-generated report on 30 years of S&P 500.
+- `tsx.csv`: Perplexity-generated report of about 80 years of TSX.
+- `example_returns.csv`: placeholder values only, not real data.
 
 ## Getting started
 
@@ -210,5 +255,6 @@ Carlo mode it also writes `monte_carlo_results.csv` with per-trial outcomes.
    values.
 2. Adjust the tax brackets and age credit values to your jurisdiction.
 3. Run the simulator with `--config` and review the generated CSV.
-4. If you have a historical return series, enable Monte Carlo mode to
-   quantify portfolio survival chances.
+4. To run Monte Carlo, point `mc_returns_file` at a file in the
+   `year,return_pct,cpi_pct` format (e.g. `perplexity-40-year.csv`) and add
+   `--monte-carlo` or `--mc-in-turn`.

@@ -236,18 +236,24 @@ Notes on the projection columns:
 - `sample_config.cfg`: example configuration file to edit for your case.
 - `sample_events.csv`: example one-time events schedule.
 
-Return and inflation data files. Only `perplexity-40-year.csv` is currently
-in the `year,return_pct,cpi_pct` format Monte Carlo expects; the others are
-reference data in older formats and would need converting first:
-- `perplexity-40-year.csv`: Perplexity-generated 40-year blended series (MSCI
-  EAFE, TSX and S&P 500 at 20% each, plus 0.8% for fixed income) with
-  Canadian CPI.
-- `canada_inflation_1986_2025.csv`: Canadian annual inflation, 1986–2025.
-- `proxy-30-year.csv`: Perplexity-generated estimate of 30 years of returns
+Return and inflation data files. The first four are in the
+`year,return_pct,cpi_pct` format Monte Carlo expects, and all share the same
+Canadian CPI for the years they overlap:
+- `perplexity-40-year.csv` (1987–2025, the sample config's default):
+  Perplexity-generated blended series (MSCI EAFE, TSX and S&P 500 at 20%
+  each, plus 0.8% for fixed income) with Canadian CPI.
+- `proxy-30-year.csv` (1996–2025): Perplexity-generated estimate of returns
   for a 10/60/30 portfolio based on weighted averages.
-- `sp-30-year.csv`: Perplexity-generated report on 30 years of S&P 500.
-- `tsx.csv`: Perplexity-generated report of about 80 years of TSX.
+- `sp-30-year.csv` (1996–2025): Perplexity-generated S&P 500 returns.
+- `tsx.csv` (1947–2025): Perplexity-generated TSX returns.
+- `canada_inflation_1986_2025.csv`: Canadian annual inflation only (no
+  returns), 1986–2025; reference data, not loadable by Monte Carlo.
 - `example_returns.csv`: placeholder values only, not real data.
+
+CPI sources: 1987–2025 as in `perplexity-40-year.csv`; 1960–1986 from the
+World Bank series derived from Statistics Canada's CPI; 1947–1959 from
+Statistics Canada's published annual average CPI change. Each file's header
+comments repeat this.
 
 ## Getting started
 
@@ -256,5 +262,5 @@ reference data in older formats and would need converting first:
 2. Adjust the tax brackets and age credit values to your jurisdiction.
 3. Run the simulator with `--config` and review the generated CSV.
 4. To run Monte Carlo, point `mc_returns_file` at a file in the
-   `year,return_pct,cpi_pct` format (e.g. `perplexity-40-year.csv`) and add
-   `--monte-carlo` or `--mc-in-turn`.
+   `year,return_pct,cpi_pct` format (the sample config already uses
+   `perplexity-40-year.csv`) and add `--monte-carlo` or `--mc-in-turn`.

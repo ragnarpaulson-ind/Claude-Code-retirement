@@ -236,24 +236,62 @@ Notes on the projection columns:
 - `sample_config.cfg`: example configuration file to edit for your case.
 - `sample_events.csv`: example one-time events schedule.
 
-Return and inflation data files. The first four are in the
-`year,return_pct,cpi_pct` format Monte Carlo expects, and all share the same
-Canadian CPI for the years they overlap:
-- `perplexity-40-year.csv` (1987–2025, the sample config's default):
-  Perplexity-generated blended series (MSCI EAFE, TSX and S&P 500 at 20%
-  each, plus 0.8% for fixed income) with Canadian CPI.
-- `proxy-30-year.csv` (1996–2025): Perplexity-generated estimate of returns
-  for a 10/60/30 portfolio based on weighted averages.
-- `sp-30-year.csv` (1996–2025): Perplexity-generated S&P 500 returns.
-- `tsx.csv` (1947–2025): Perplexity-generated TSX returns.
-- `canada_inflation_1986_2025.csv`: Canadian annual inflation only (no
-  returns), 1986–2025; reference data, not loadable by Monte Carlo.
-- `example_returns.csv`: placeholder values only, not real data.
+### Historical returns (recommended)
 
-CPI sources: 1987–2025 as in `perplexity-40-year.csv`; 1960–1986 from the
-World Bank series derived from Statistics Canada's CPI; 1947–1959 from
-Statistics Canada's published annual average CPI change. Each file's header
-comments repeat this.
+`historical_returns_cad.csv` holds annual returns for 1957–2025 by asset
+class, all in Canadian dollars (nominal total returns, %), plus Canadian CPI:
+`ca_eq`, `us_eq`, `intl_eq`, `ca_bonds`, `cash`, `cpi`. It is built from
+public source data in `historical_data/` by `historical_data/build_returns.py`;
+the file header lists every source and splice point. Rebuild it with:
+
+```
+python3 historical_data/build_returns.py --check
+```
+
+(needs Python with pandas, openpyxl and xlrd; `--check` prints the
+cross-checks between overlapping sources).
+
+This 7-column file is **not** read by the simulator directly. To get a file
+Monte Carlo can load, blend it for a given allocation (rebalanced annually):
+
+```
+python3 historical_data/build_returns.py \
+    --blend ca_eq=0.2,us_eq=0.2,intl_eq=0.2,ca_bonds=0.3,cash=0.1 my-blend.csv
+```
+
+`blend-20ca-20us-20intl-30bond-10cash.csv` is that example, ready to use.
+Run it with `--use-historical-cpi`: returns from high-inflation decades are
+only meaningful alongside that era's inflation.
+
+Known limitations:
+- `intl_eq` before 1999 is a stand-in (GDP-weighted average of 15 developed
+  markets from the JST Macrohistory Database). It tracks MSCI EAFE closely
+  year to year but ran about 2 points a year higher over 1999–2020, so it is
+  likely optimistic before 1999.
+- `ca_bonds` is approximated from Government of Canada bond yields, so it
+  has no corporate or provincial bonds. It runs about 0.6 points a year below
+  a broad bond index, and it looks better than a bond fund in credit crises
+  (2008) and worse in the recoveries (2009).
+- Bonds and cash benefited from the falling-rate era of 1981–2000; their
+  2001–2025 real returns (about 1% and 0%) are closer to today's yields.
+
+### Older data files
+
+All in the `year,return_pct,cpi_pct` format, sharing the same Canadian CPI
+for overlapping years. These were LLM-generated and are kept for comparison;
+checked against MSCI data for 1999–2020 they have known problems:
+- `perplexity-40-year.csv` (1987–2025, the sample config's default): blend
+  of MSCI EAFE, TSX and S&P 500 at 20% each plus a flat 2% on the other 40%.
+  The S&P and EAFE components are USD returns (no currency effect), and the
+  flat 2% understates fixed income; together it runs about 1.5 points a year
+  below the new data in real terms over the same years.
+- `proxy-30-year.csv` (1996–2025): estimate for a 10/60/30 portfolio.
+- `sp-30-year.csv` (1996–2025): does not match S&P 500 returns in either
+  USD or CAD (about 7 points a year off on average).
+- `tsx.csv` (1947–2025): TSX **price** returns only (no dividends), about 3
+  points a year too low.
+- `canada_inflation_1986_2025.csv`: Canadian inflation only; not loadable.
+- `example_returns.csv`: placeholder values only, not real data.
 
 ## Getting started
 

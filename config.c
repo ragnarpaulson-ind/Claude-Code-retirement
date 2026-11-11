@@ -85,6 +85,7 @@ void config_defaults(Config *c) {
     c->fed_age_credit_clawback_start = 1e18;
     c->oas_clawback_threshold = 95323.0;   /* 2026 income year, Canada.ca */
     c->oas_clawback_rate = 0.15;
+    c->dollars_year = 0;
     c->a.death_date.year = 0;
     c->b.death_date.year = 0;
     c->survivor_spending_pct = 80.0;
@@ -181,6 +182,7 @@ int config_load(Config *c, const char *path) {
         else if (strcmp(key, "annual_fee_pct") == 0) { c->annual_fee_pct = atof(val); }
         else if (strcmp(key, "personal_inflation_pct") == 0) { c->personal_inflation_pct = atof(val); }
         else if (strcmp(key, "gov_inflation_pct") == 0) { c->gov_inflation_pct = atof(val); }
+        else if (strcmp(key, "dollars_year") == 0) { c->dollars_year = atoi(val); }
 
         else if (strcmp(key, "target_net_monthly") == 0) { c->target_net_monthly = atof(val); }
         else if (strcmp(key, "target_gross_monthly") == 0) { c->target_gross_monthly = atof(val); }

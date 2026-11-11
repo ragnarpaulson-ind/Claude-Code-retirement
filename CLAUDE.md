@@ -104,6 +104,9 @@ make
    death: break out of the month loop; estate noted in the summary.
    CLI `--death-a/--death-b <date|none>` override the config dates.
 
+`dollars_year` (0 = start year): gov_inflate starts at
+(1 + gov_inflation_pct)^(start year − dollars_year) instead of 1, so every
+government amount entered in that year's dollars is brought forward.
 Inflation: `personal_inflation_pct` for spending targets (paused during the
 "go slow" window) and rent (always inflates, ignores go-slow);
 `gov_inflation_pct` for CPP/OAS, tax brackets and credits. With

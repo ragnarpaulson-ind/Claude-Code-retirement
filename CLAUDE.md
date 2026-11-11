@@ -164,6 +164,8 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 - One-time events were applied after the month's draws, causing a spurious
   taxable RRIF spike when an event coincided with a spending jump.
 - The extra registered draw was attributed by account size, not split.
+- RRIF minimums used the age reached during the year (year - dob.year);
+  CRA uses age on Jan 1 -- see age_on_jan1().
 - Expenses beyond non-reg funds were taken from the RRIFs untaxed, skipping
   the TFSA.
 - A surplus with both non-reg balances at 0 was silently counted as spent
@@ -184,8 +186,7 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 4. Survivor modelling done (fixed death dates). Not modelled: random
    mortality in Monte Carlo; CPP survivor rules under 65; OAS +10% at 75;
    GIS.
-5. Independent review (Nov 2026) open findings: RRIF minimum uses age at
-   Dec 31 instead of Jan 1 (year - dob.year); Ontario Health Premium, OAS
+5. Independent review (Nov 2026) open findings: Ontario Health Premium, OAS
    +10% at 75 and the pension income credit not modelled; non-reg return
    taxed as 100% income; Ontario bracket thresholds and age-credit amounts
    in sample_config.cfg are stale for 2026; TFSA grant not indexed or

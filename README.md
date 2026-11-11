@@ -152,14 +152,19 @@ CPI column from the returns file (rent still uses `personal_inflation_pct`).
 Monte Carlo mode replays a historical annual return series to test many
 possible return paths.
 
-- `mc_returns_file` must have one line per year in the form
-  `year,return_pct,cpi_pct`, with consecutive years. Lines starting with `#`
-  and blank lines are ignored. Example:
+- `mc_returns_file` has one line per year, with consecutive years. Lines
+  starting with `#` and blank lines are ignored, except a `# year,...`
+  comment, which names the columns. Two layouts are accepted:
+  - **Asset classes** (e.g. `historical_returns_cad.csv`): columns named
+    `ca_eq`, `us_eq`, `intl_eq`, `ca_bonds`, `cash` and `cpi`, blended by the
+    `mc_alloc_<name>` weights in the config (see "Historical returns" below).
+  - **Single return**, when no `mc_alloc_*` weights are set:
+    `year,return_pct,cpi_pct`, e.g.
 
-  ```
-  1987,8.02,4.36
-  1988,11.80,4.10
-  ```
+    ```
+    1987,8.02,4.36
+    1988,11.80,4.10
+    ```
 
 - `--monte-carlo`: each simulated year draws a random year from the file,
   independently and with replacement. `mc_trials` sets the number of trials
@@ -255,18 +260,26 @@ python3 historical_data/build_returns.py --check
 (needs Python with pandas, openpyxl and xlrd; `--check` prints the
 cross-checks between overlapping sources).
 
-This 7-column file is **not** read by the simulator directly. To get a file
-Monte Carlo can load, blend it for a given allocation (rebalanced annually):
+Monte Carlo reads this file directly when the config sets portfolio weights
+(fractions summing to 1; the portfolio is rebalanced to them every year):
 
 ```
-python3 historical_data/build_returns.py \
-    --blend ca_eq=0.2,us_eq=0.2,intl_eq=0.2,ca_bonds=0.3,cash=0.1 my-blend.csv
+mc_returns_file=historical_returns_cad.csv
+mc_alloc_ca_eq=0.20
+mc_alloc_us_eq=0.20
+mc_alloc_intl_eq=0.20
+mc_alloc_ca_bonds=0.30
+mc_alloc_cash=0.10
 ```
 
-`blend-20ca-20us-20intl-30bond-10cash.csv` is that example, ready to use.
-Set `annual_fee_pct` to your fees, since these are index returns before
-fees. Run it with `--use-historical-cpi`: returns from high-inflation decades are
+Leave out an asset class (or set it to 0) to hold none of it. Set
+`annual_fee_pct` to your fees, since these are index returns before fees,
+and run with `--use-historical-cpi`: returns from high-inflation decades are
 only meaningful alongside that era's inflation.
+
+The script can also write a pre-blended 3-column file for one allocation
+(`--blend ca_eq=0.2,...,cash=0.1 my-blend.csv`);
+`blend-20ca-20us-20intl-30bond-10cash.csv` is that example.
 
 Known limitations:
 - `intl_eq` before 1999 is a stand-in (GDP-weighted average of 15 developed
@@ -285,7 +298,7 @@ Known limitations:
 All in the `year,return_pct,cpi_pct` format, sharing the same Canadian CPI
 for overlapping years. These were LLM-generated and are kept for comparison;
 checked against MSCI data for 1999–2020 they have known problems:
-- `perplexity-40-year.csv` (1987–2025, the sample config's default): blend
+- `perplexity-40-year.csv` (1987–2025): blend
   of MSCI EAFE, TSX and S&P 500 at 20% each plus a flat 2% on the other 40%.
   The S&P and EAFE components are USD returns (no currency effect), and the
   flat 2% understates fixed income; together it runs about 1.5 points a year

@@ -6,25 +6,76 @@
 #include <math.h>
 #include "retirement_sim.h"
 
-/* Historical returns file format: one annual % return per non-blank,
-   non-comment line, each line contains 3 values,  year,return,cpi
-   eg:
-       # a rough placeholder blended return series -- replace with real data
-       1986,7.2,1.7
-       1987,-3.1,-0.5
-       1988,11.8,4.1
-       ...
-   Lines starting with '#' and blank lines are ignored. 
-   Years must be consecutive.  As the Canadian government does not reduce benefits, 
-   negative cpi is treated as 0
+/* Historical returns file formats. Lines starting with '#' and blank lines
+   are ignored, except a "# year,..." comment, which names the columns.
+   Years must be consecutive. Values may carry a trailing '%'.
+
+   1. Single blended return (no mc_alloc_* keys set):
+          1987,8.02,4.36            year,return_pct,cpi_pct
+
+   2. Asset-class returns, e.g. historical_returns_cad.csv:
+          # year,ca_eq,us_eq,intl_eq,ca_bonds,cash,cpi
+          1957,-20.58,-1.27,...
+      Requires mc_alloc_<name> weights in the config (fractions summing to
+      1). Each year's return is the weighted sum of the named columns, i.e.
+      the portfolio is rebalanced to those weights every year; cpi comes
+      from the "cpi" column.
 */
 
-static int load_return_series(const char *path, historical_returns_t **out, int *n) {
+#define MAX_RETURN_COLS 16
+
+/* Parses comma-separated numbers into vals; returns how many were read. */
+static int parse_numbers(const char *l, double *vals, int max) {
+    int n = 0;
+    while (*l && n < max) {
+        char *end;
+        double v = strtod(l, &end);
+        if (end == l) break;                       /* not a number */
+        vals[n++] = v;
+        l = end;
+        while (*l && *l != ',') l++;               /* skip '%', spaces */
+        if (*l == ',') l++;
+    }
+    return n;
+}
+
+/* If l (after '#') is a "year,..." header, fills names and returns the
+   number of columns; otherwise returns 0. */
+static int parse_header(const char *l, char names[][32], int max) {
+    while (*l == '#' || isspace((unsigned char)*l)) l++;
+    if (strncmp(l, "year,", 5) != 0) return 0;
+    int n = 0;
+    while (*l && n < max) {
+        while (isspace((unsigned char)*l)) l++;
+        int k = 0;
+        while (*l && *l != ',' && !isspace((unsigned char)*l) && k < 31) names[n][k++] = *l++;
+        names[n][k] = 0;
+        n++;
+        while (*l && *l != ',') l++;
+        if (*l == ',') l++;
+    }
+    return n;
+}
+
+static int find_column(char names[][32], int n_names, const char *name) {
+    for (int i = 0; i < n_names; i++)
+        if (strcmp(names[i], name) == 0) return i;
+    return -1;
+}
+
+static int load_return_series(const Config *c, const char *path, historical_returns_t **out, int *n) {
     FILE *f = fopen(path, "r");
     if (!f) {
         fprintf(stderr, "Could not open historical returns file '%s'\n", path);
         return 0;
     }
+
+    int use_alloc = 0;
+    for (int a = 0; a < N_ASSET_CLASSES; a++) if (c->mc_alloc[a] != 0.0) use_alloc = 1;
+
+    char names[MAX_RETURN_COLS][32];
+    int n_names = 0;
+    int alloc_col[N_ASSET_CLASSES], cpi_col = -1;   /* data-value index (year excluded) */
 
     int capacity = 128, count = 0;
     historical_returns_t *returns = malloc(capacity * sizeof(*returns));
@@ -33,70 +84,89 @@ static int load_return_series(const char *path, historical_returns_t **out, int 
         fclose(f);
         return 0;
     }
-    char line[256];
+    char line[1024];
 
     while (fgets(line, sizeof(line), f)) {
         char *l = line;
         while (isspace((unsigned char)*l)) l++;
-        if (*l == 0 || *l == '#') continue;
+        if (*l == '#') {
+            int k = parse_header(l, names, MAX_RETURN_COLS);
+            if (k > 0) n_names = k;
+            continue;
+        }
+        if (*l == 0) continue;
+
+        double vals[MAX_RETURN_COLS];
+        int nv = parse_numbers(l, vals, MAX_RETURN_COLS);
+        if (nv < 3) {
+            fprintf(stderr, "Invalid historical returns file '%s': need year,return,cpi on line: %s", path, line);
+            goto fail;
+        }
+
+        if (count == 0) {
+            /* Resolve columns once, from the header seen before the first row. */
+            if (use_alloc) {
+                if (n_names == 0) {
+                    fprintf(stderr, "mc_alloc_* weights are set, but '%s' has no \"# year,...\" header naming its columns.\n", path);
+                    goto fail;
+                }
+                for (int a = 0; a < N_ASSET_CLASSES; a++) {
+                    alloc_col[a] = find_column(names, n_names, ASSET_CLASS_NAMES[a]) - 1;
+                    if (c->mc_alloc[a] != 0.0 && alloc_col[a] < 0) {
+                        fprintf(stderr, "mc_alloc_%s is set, but '%s' has no '%s' column.\n",
+                                ASSET_CLASS_NAMES[a], path, ASSET_CLASS_NAMES[a]);
+                        goto fail;
+                    }
+                }
+                cpi_col = find_column(names, n_names, "cpi") - 1;
+                if (cpi_col < 0) {
+                    fprintf(stderr, "'%s' has no 'cpi' column.\n", path);
+                    goto fail;
+                }
+            } else if (nv > 3) {
+                fprintf(stderr, "'%s' has %d return columns (asset classes?). Set mc_alloc_* weights in the config "
+                                "to blend them, or use a year,return_pct,cpi_pct file.\n", path, nv - 1);
+                goto fail;
+            }
+        }
+
         if (count >= capacity) {
-            /* Grow by element size (previously sized as double, which
-               shrank the buffer and overflowed past 128 data rows). */
             capacity *= 2;
             historical_returns_t *grown = realloc(returns, capacity * sizeof(*returns));
             if (!grown) {
                 fprintf(stderr, "Out of memory reading historical returns file '%s'\n", path);
-                free(returns);
-                fclose(f);
-                return 0;
+                goto fail;
             }
             returns = grown;
         }
 
-        /* expect "year,return,cpi"  -- */
-	returns[count].year = atol(l);
-	if (count > 0) {
-	    if ((returns[count-1].year+1) != (returns[count].year)) {
-		fprintf(stderr, "Invalid historical returns file, year %d followed by %d\n",
-		    returns[count-1].year, returns[count].year);
-		    free(returns);
-		    return 0;
-	    }
-	}
-	while (*l != 0) {
-	    if (',' != (unsigned char) *l) l++;
-	    else {
-		l++;
-		break;
-	    }
-	}
-	if (*l != 0) {
-	    returns[count].roi = atof(l);
-	}
-	else {
-	    fprintf(stderr, "Invalid historical returns file, no return for year %d\n",
-		returns[count].year);
-		free(returns);
-		return 0;
-	}
-	while (*l != 0) {
-	    if (',' != (unsigned char) *l) l++;
-	    else {
-		l++;
-		break;
-	    }
-	}
-	if (*l != 0) {
-	    returns[count].cpi = atof(l);
-	}
-	else {
-	    fprintf(stderr, "Invalid historical returns file, no cpi for year %d\n",
-		returns[count].year);
-		free(returns);
-		return 0;
-	}
-	count++;
-
+        returns[count].year = (int)vals[0];
+        if (count > 0 && returns[count-1].year + 1 != returns[count].year) {
+            fprintf(stderr, "Invalid historical returns file, year %d followed by %d\n",
+                    returns[count-1].year, returns[count].year);
+            goto fail;
+        }
+        if (use_alloc) {
+            double roi = 0.0;
+            for (int a = 0; a < N_ASSET_CLASSES; a++) {
+                if (c->mc_alloc[a] == 0.0) continue;
+                if (alloc_col[a] + 1 >= nv) {
+                    fprintf(stderr, "'%s': year %d is missing the '%s' value.\n", path, returns[count].year, ASSET_CLASS_NAMES[a]);
+                    goto fail;
+                }
+                roi += c->mc_alloc[a] * vals[alloc_col[a] + 1];
+            }
+            if (cpi_col + 1 >= nv) {
+                fprintf(stderr, "'%s': year %d is missing the cpi value.\n", path, returns[count].year);
+                goto fail;
+            }
+            returns[count].roi = roi;
+            returns[count].cpi = vals[cpi_col + 1];
+        } else {
+            returns[count].roi = vals[1];
+            returns[count].cpi = vals[2];
+        }
+        count++;
     }
     fclose(f);
 
@@ -108,6 +178,36 @@ static int load_return_series(const char *path, historical_returns_t **out, int 
 
     *out = returns;
     *n = count;
+    return 1;
+
+fail:
+    free(returns);
+    fclose(f);
+    return 0;
+}
+
+/* Checks mc_alloc_* weights: none negative, and (if any are set) summing to 1. */
+static int check_allocation(const Config *c) {
+    double sum = 0.0;
+    int any = 0;
+    for (int a = 0; a < N_ASSET_CLASSES; a++) {
+        if (c->mc_alloc[a] < 0.0) {
+            fprintf(stderr, "mc_alloc_%s is negative (%g).\n", ASSET_CLASS_NAMES[a], c->mc_alloc[a]);
+            return 0;
+        }
+        if (c->mc_alloc[a] != 0.0) any = 1;
+        sum += c->mc_alloc[a];
+    }
+    if (any && fabs(sum - 1.0) > 0.001) {
+        fprintf(stderr, "mc_alloc_* weights sum to %.4f; they must sum to 1 (e.g. 0.20 for 20%%).\n", sum);
+        return 0;
+    }
+    if (any) {
+        printf("Portfolio allocation (rebalanced annually):");
+        for (int a = 0; a < N_ASSET_CLASSES; a++)
+            if (c->mc_alloc[a] != 0.0) printf(" %s %.0f%%", ASSET_CLASS_NAMES[a], c->mc_alloc[a] * 100.0);
+        printf("\n");
+    }
     return 1;
 }
 
@@ -134,7 +234,8 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
 
     historical_returns_t *returns = NULL;
     int n_returns = 0;
-    if (!load_return_series(c->mc_returns_file, &returns, &n_returns)) return 0;
+    if (!check_allocation(c)) return 0;
+    if (!load_return_series(c, c->mc_returns_file, &returns, &n_returns)) return 0;
 
     int trials = c->mc_trials > 0 ? c->mc_trials : 10000;
     if (c->mc_in_turn) {

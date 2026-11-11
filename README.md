@@ -70,9 +70,14 @@ The simulator advances month by month. For each month it:
    else, so a windfall can fund that month's spending and an expense comes
    out before the month's draws:
    - Positive amounts are split evenly into the two non-registered accounts.
-   - Negative amounts come out of non-registered first (proportionally), then
-     any remainder from registered accounts, split evenly; if one registered
-     account can't cover its half, the other covers the rest.
+   - Negative amounts (expenses) come out of non-registered first
+     (proportionally), then the TFSA, then a **taxable** lump-sum
+     withdrawal from the registered accounts, taken in proportion to their
+     remaining balances. The lump is grossed up so that after its tax it
+     covers the expense, and its tax is the extra it adds to the **year's**
+     tax (income tax, lost age credit and any OAS clawback on top of a year
+     of regular income), not this month's tax rate. Enter events as the
+     amount you'll actually spend; the simulator adds the tax.
 
 2. **Computes fixed income** for each person:
    - CPP and OAS, with the standard early/late adjustment factors: CPP early
@@ -262,6 +267,10 @@ Notes on the projection columns:
   gross-target draws netting more than you spend): the surplus is saved to
   the non-registered accounts, and January's sweep moves it into the TFSA
   when there is room. `net_takehome` is what was actually spent.
+- `event_from_tfsa`, `event_from_registered` and `event_tax` show how a
+  one-time expense was funded: the TFSA portion, the gross registered
+  withdrawal, and the tax on it (the expense not met by non-registered
+  money = `event_from_tfsa` + `event_from_registered` − `event_tax`).
 - `oas_clawback_a` / `oas_clawback_b` are the monthly OAS recovery tax for
   each person (already taken out of `net_of_tax`).
 - `split_a_to_b` is the amount moved between returns by income splitting:

@@ -109,6 +109,9 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
   return after splitting. Cash actually withdrawn from A's account is
   `reg_a_wd + split_a_to_b`; from B's is `reg_b_wd − split_a_to_b`.
 - `household_gross` is unaffected by splitting.
+- Surplus months (after-tax income > target): saved into non-reg (by
+  balance, or split evenly between the living spouses if both are 0);
+  `non_reg_shortfall_draw` is negative and `net_takehome` = actual spending.
 - Warnings: "registered funds insufficient for base/RRIF-minimum draw" and
   "money ran out" (every source exhausted, target still unmet).
 
@@ -155,6 +158,8 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 - One-time events were applied after the month's draws, causing a spurious
   taxable RRIF spike when an event coincided with a spending jump.
 - The extra registered draw was attributed by account size, not split.
+- A surplus with both non-reg balances at 0 was silently counted as spent
+  (and net_takehome showed income, not spending, in surplus months).
 - Account-exhausted notes only fired on a negative balance; draws are capped
   so balances land on 0, and the summary wrongly said "No account was
   depleted". Now flagged when an account reaches ~0 from a positive balance.
@@ -170,6 +175,4 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
    years bracket it). Shortfall reporting folded into guardrail stats.
 4. Survivor modelling done (fixed death dates). Not modelled: random
    mortality in Monte Carlo; CPP survivor rules under 65; OAS +10% at 75;
-   GIS. Pre-existing: if registered draws to the gross target exceed the
-   net target and there is no non-registered account to absorb the surplus,
-   the surplus is counted as take-home (spent).
+   GIS.

@@ -579,9 +579,25 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double shortfall = retired ? (target_net_effective - net_of_tax) : 0.0;
 
         /* first try to cover the shortfall with the non registered accounts, take from each account 
-        equally if possible */
+        equally if possible. A negative shortfall is a SURPLUS (after-tax
+        income above the target, e.g. draws to the gross target netting more
+        than is spent): it is saved into the non-registered accounts -- in
+        proportion to their balances, or, if both are empty, split evenly
+        between the living spouses -- and January's sweep moves it to the
+        TFSA when there is room. non_reg_draw_total is then negative. */
         double non_reg_draw_total = 0.0;
-        if (fund_a_nonreg + fund_b_nonreg > 0) {
+        if (shortfall < 0 && fund_a_nonreg + fund_b_nonreg <= 0) {
+            if (alive_a && alive_b) {
+                fund_a_nonreg -= shortfall / 2.0;
+                fund_b_nonreg -= shortfall / 2.0;
+            } else if (alive_a) {
+                fund_a_nonreg -= shortfall;
+            } else {
+                fund_b_nonreg -= shortfall;
+            }
+            non_reg_draw_total = shortfall;
+            shortfall = 0.0;
+        } else if (fund_a_nonreg + fund_b_nonreg > 0) {
             double non_reg_total = fund_a_nonreg + fund_b_nonreg;
             double non_reg_draw_a = shortfall * (fund_a_nonreg / non_reg_total);
             double non_reg_draw_b = shortfall * (fund_b_nonreg / non_reg_total);
@@ -673,7 +689,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             oas_claw_total += claw_a + claw_b;
         }
 
-        double net_takehome = net_of_tax + tfsa_topup + (non_reg_draw_total > 0 ? non_reg_draw_total : 0.0);
+        /* What was actually spent: a saved surplus (negative
+           non_reg_draw_total) is not spending. */
+        double net_takehome = net_of_tax + tfsa_topup + non_reg_draw_total;
         annual_net_takehome += net_takehome;
 
         /* True depletion check: after registered (base + any extra),

@@ -6,7 +6,10 @@ SRCS = main.c config.c tax.c rrif.c sim.c monte_carlo.c
 $(TARGET): $(SRCS) retirement_sim.h dateutil.h
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS) -lm
 
+test: $(TARGET)
+	python3 tests/run_tests.py
+
 clean:
 	rm -f $(TARGET) *.o
 
-.PHONY: clean
+.PHONY: clean test

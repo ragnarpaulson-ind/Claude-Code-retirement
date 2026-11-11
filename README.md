@@ -428,6 +428,20 @@ checked against MSCI data for 1999–2020 they have known problems:
 - `canada_inflation_1986_2025.csv`: Canadian inflation only; not loadable.
 - `example_returns.csv`: placeholder values only, not real data.
 
+## Testing
+
+```
+make test
+```
+
+builds the simulator and runs `tests/run_tests.py` (Python 3, standard
+library only). Each test runs a small synthetic scenario and checks the
+result against a value worked out independently from the rule being tested:
+OAS clawback, survivor CPP and single-return tax, one-time expense funding
+and its tax, RRIF minimum factors, `dollars_year` indexing, surplus saving,
+account-exhausted notes, and Monte Carlo loading, weighting, expected
+returns and guardrails. Every test must pass before a change is merged.
+
 ## Getting started
 
 1. Copy `sample_config.cfg` to a real config file and enter your actual

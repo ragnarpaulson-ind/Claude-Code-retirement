@@ -53,6 +53,8 @@ typedef struct {
     double person_b_nonreg_balance;     /* starting non-registered balance, this person's own account */
 
     double roi_annual_pct;           /* investment return, applied to all pools */
+    double annual_fee_pct;           /* investment fees (e.g. ETF MERs), deducted from
+                                        every year's return, flat and Monte Carlo */
     double personal_inflation_pct;   /* inflates spending targets */
     double gov_inflation_pct;        /* inflates CPP/OAS/tax brackets/credits */
 

@@ -184,6 +184,10 @@ placeholders; the sample balances are $0):
 - spending targets: `target_net_monthly` (household, after tax) and
   `target_gross_monthly` (per person, before tax).
 - ROI, inflation rates, and the go-slow window.
+- `annual_fee_pct`: investment fees (e.g. ETF MERs), deducted from every
+  year's return in both flat and Monte Carlo runs (default 0; leave it at 0
+  if `roi_annual_pct` is already net of fees). The historical return files
+  are index returns before fees, so set this for Monte Carlo.
 - tax brackets, age-credit rules, rent, the events file, and Monte Carlo
   settings.
 
@@ -260,7 +264,8 @@ python3 historical_data/build_returns.py \
 ```
 
 `blend-20ca-20us-20intl-30bond-10cash.csv` is that example, ready to use.
-Run it with `--use-historical-cpi`: returns from high-inflation decades are
+Set `annual_fee_pct` to your fees, since these are index returns before
+fees. Run it with `--use-historical-cpi`: returns from high-inflation decades are
 only meaningful alongside that era's inflation.
 
 Known limitations:

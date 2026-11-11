@@ -156,6 +156,12 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
     cumulative_return -= 1.0;  /* convert to percentage */
     printf("Historical returns file '%s' has %d usable years, cumulative return %.2f%%, fixed yearly equivalent %.2f%%\n",
            c->mc_returns_file, n_returns, (cumulative_return) * 100.0, fixed_yearly_return * 100.0);
+    if (c->annual_fee_pct != 0.0) {
+        double net = 1.0;
+        for (int i = 0; i < n_returns; i++) net *= 1.0 + (returns[i].roi - c->annual_fee_pct) / 100.0;
+        printf("  after annual_fee_pct %.2f%%: fixed yearly equivalent %.2f%% (fees deducted from every year's return)\n",
+               c->annual_fee_pct, (pow(net, 1.0 / n_returns) - 1.0) * 100.0);
+    }
     /* calculate the cumulative inflation (cpi) in the historical data and fixed yearly equivalent */
     double cumulative_inflate = 1.0;
     for (int i = 0; i < n_returns; i++) {

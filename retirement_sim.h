@@ -38,6 +38,7 @@ typedef struct {
     Date oas_start;
     double cpp_at_65;    /* monthly CPP amount if started exactly at 65, today's dollars */
     double oas_at_65;    /* monthly OAS amount if started exactly at 65, today's dollars */
+    Date death_date;     /* optional; year 0 = not modelled */
 } Person;
 
 typedef struct {
@@ -84,6 +85,11 @@ typedef struct {
        brackets), capped at that person's OAS. Rate 0 disables it. */
     double oas_clawback_threshold;
     double oas_clawback_rate;
+    /* Survivor modelling (when a death date is set) */
+    double survivor_spending_pct;     /* survivor's net target, % of the couple's (rent excluded) */
+    double cpp_survivor_rate;         /* survivor's pension, fraction of deceased's CPP (65+: 0.60) */
+    double cpp_combined_max_monthly;  /* cap on own + survivor's CPP, today's dollars */
+    double cpp_death_benefit;         /* one-time, nominal */
 
     double rent_monthly;  /* if >0, monthly rent expense in today's dollarsstarting at rent_start_date */
 

@@ -89,6 +89,15 @@ make
    add TFSA room (annual grant + prior-year TFSA withdrawals), then sweep
    non-registered into TFSA up to available room.
 
+8. **Deaths** (`person_x_death_date`, at the start of the first month on or
+   after it, before events): first death rolls RRIF, non-reg and the rest
+   of the year's RRIF minimum to the survivor, adds `cpp_death_benefit` to
+   the survivor's non-reg; afterwards the deceased has no income/draw/split
+   (`both_alive` gates splitting), survivor CPP = own + min(cpp_survivor_rate
+   × deceased CPP, combined max − own), net target × survivor_spending_pct
+   (rent added after, in full), positive events go to the survivor. Second
+   death: break out of the month loop; estate noted in the summary.
+
 Inflation: `personal_inflation_pct` for spending targets (paused during the
 "go slow" window) and rent (always inflates, ignores go-slow);
 `gov_inflation_pct` for CPP/OAS, tax brackets and credits. With
@@ -159,5 +168,8 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
    not handled (owner is aware, deferred).
 3. Block bootstrap dropped (owner's call: --mc-in-turn and independent
    years bracket it). Shortfall reporting folded into guardrail stats.
-4. Planned next: survivor modelling (death date, ~80% spending, survivor
-   CPP, single-return tax). Not modelled: OAS +10% at 75.
+4. Survivor modelling done (fixed death dates). Not modelled: random
+   mortality in Monte Carlo; CPP survivor rules under 65; OAS +10% at 75;
+   GIS. Pre-existing: if registered draws to the gross target exceed the
+   net target and there is no non-registered account to absorb the surplus,
+   the surplus is counted as take-home (spent).

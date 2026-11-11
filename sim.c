@@ -180,8 +180,13 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             if (c->mc_use_historical_cpi && roi_override) {
                 /* If the Monte Carlo trial is using historical CPI, then the
                    inflation factor for this year is the one supplied by the
-                   historical data, not the configured fixed rate. */
-                gov_inflate *= (1.0 + roi_override[year - c->sim_start_date.year].cpi / 100.0);
+                   historical data, not the configured fixed rate. CPP/OAS
+                   and tax-bracket indexing never go down, so a negative CPI
+                   year (e.g. 1953) leaves them unchanged. Spending
+                   (personal_inflate, below) does follow the actual CPI. */
+                double gov_cpi = roi_override[year - c->sim_start_date.year].cpi;
+                if (gov_cpi < 0.0) gov_cpi = 0.0;
+                gov_inflate *= (1.0 + gov_cpi / 100.0);
             } else {
                 gov_inflate *= (1.0 + c->gov_inflation_pct / 100.0);
             }

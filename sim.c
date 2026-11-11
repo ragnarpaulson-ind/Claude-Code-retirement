@@ -69,6 +69,23 @@ static double oas_clawback(const Config *c, double income_monthly, double oas_mo
     return claw < oas_monthly ? claw : oas_monthly;
 }
 
+/* One person's annual tax cost on annual income: income tax, less the age
+ * credit, plus the OAS clawback (same rules as compute_net, but annual).
+ * Used to charge a one-time lump-sum withdrawal its true extra tax for the
+ * year: cost(regular year + lump) - cost(regular year). */
+static double annual_tax_cost(const Config *c, double income_annual, double oas_annual,
+                              double gov_inflate, int is_65_plus) {
+    double claw = 0.0;
+    if (oas_annual > 0.0 && c->oas_clawback_rate > 0.0) {
+        double excess = income_annual - c->oas_clawback_threshold * gov_inflate;
+        if (excess > 0.0) claw = c->oas_clawback_rate * excess;
+        if (claw > oas_annual) claw = oas_annual;
+    }
+    double taxable = income_annual - claw;
+    double credit = is_65_plus ? age_credit_annual(c, taxable, gov_inflate) : 0.0;
+    return tax_owed_annual(c, taxable, gov_inflate) - credit + claw;
+}
+
 static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, double gov_inflate,
                          double fixed_a, double fixed_b, double draw_a, double draw_b,
                          double oas_a, double oas_b,
@@ -112,7 +129,7 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         fprintf(csv, "date,reg_a_wd, reg_b_wd,household_gross,tax_a,tax_b,age_credit_a,age_credit_b,"
                      "net_of_tax,non_reg_shortfall_draw,tfsa_topup,jan_nonreg_to_tfsa_sweep,net_takehome,tfsa_balance,"
                      "registered_balance_a,non-registered_balance_a,registered_balance_b,non-registered_balance_b,rrif_min_a,rrif_min_b,"
-                     "split_a_to_b,oas_clawback_a,oas_clawback_b,event\n");
+                     "split_a_to_b,oas_clawback_a,oas_clawback_b,event_from_tfsa,event_from_registered,event_tax,event\n");
     }
 
     Date age65_a, age65_b;
@@ -165,6 +182,7 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     Date both_over_target_date = {0,0,0};
     int both_over_target_months = 0;
     int oas_claw_months = 0;
+    double event_tfsa_total = 0.0, event_lump_total_gross = 0.0, event_lump_total_tax = 0.0;
     Date oas_claw_first = {0,0,0};
     double oas_claw_total = 0.0;   /* nominal dollars, both spouses */
 
@@ -325,6 +343,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
            other covers the rest. */
         double event_amount = 0.0;
         char event_note[256] = "";
+        double event_from_tfsa = 0.0, event_lump_needed = 0.0;
+        double event_reg_gross = 0.0, event_tax = 0.0;
 
         /* Deaths. At the first death the deceased's RRIF and non-registered
            money roll over tax-free to the survivor (the TFSA is already
@@ -394,14 +414,20 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
                 event_amount -= (nonreg_draw_a + nonreg_draw_b);
             }
-            if (event_amount < 0) {
-                /* remainder from registered accounts */
-                fund_a += event_amount / 2.0;
-                fund_b += event_amount / 2.0;
-                if (fund_a < 0) { fund_b += fund_a; fund_a = 0; }
-                if (fund_b < 0) { fund_a += fund_b; fund_b = 0; }
-                if (fund_a < 0) fund_a = 0;
+            /* Then the TFSA (tax-free; the withdrawal is added back to
+               contribution room next January). */
+            if (event_amount < 0 && tfsa_balance > 0) {
+                double t = -event_amount < tfsa_balance ? -event_amount : tfsa_balance;
+                tfsa_balance -= t;
+                tfsa_contribution_room_change += t;
+                event_from_tfsa = t;
+                event_amount += t;
             }
+            /* Whatever is left comes from the registered accounts as a
+               TAXABLE lump-sum withdrawal. It is settled after this month's
+               regular income and draws are known (below), so its tax can be
+               charged on top of the year's regular income. */
+            if (event_amount < 0) event_lump_needed = -event_amount;
         } else if (event_amount > 0) {
             if (both_alive) {
                 fund_a_nonreg += event_amount / 2.0;
@@ -689,6 +715,54 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             oas_claw_total += claw_a + claw_b;
         }
 
+        /* One-time expense not covered by non-registered or TFSA money: a
+           registered lump-sum withdrawal, grossed up for its tax. The tax is
+           the extra the lump adds to the YEAR's tax (on a year of this
+           month's regular income), not this month's tax x 12 -- that would
+           tax the lump as if it recurred monthly. Taken from each spouse's
+           remaining registered balance in proportion; no pension splitting
+           of the lump. If the accounts can't cover it, money has run out. */
+        if (event_lump_needed > 0.005) {
+            double left_a = fund_a - cash_a, left_b = fund_b - cash_b;
+            if (left_a < 0) left_a = 0;
+            if (left_b < 0) left_b = 0;
+            double left = left_a + left_b;
+            double inc_a = (fixed_a + draw_a) * 12.0, inc_b = (fixed_b + draw_b) * 12.0;
+            double base_a = annual_tax_cost(c, inc_a, oas_a * 12.0, gov_inflate, is_age_65_plus(cur, age65_a));
+            double base_b = annual_tax_cost(c, inc_b, oas_b * 12.0, gov_inflate, is_age_65_plus(cur, age65_b));
+            double g = event_lump_needed, ga = 0.0, gb = 0.0, tx = 0.0;
+            for (int iter = 0; iter < 50 && left > 0.005; iter++) {
+                if (g > left) g = left;
+                ga = g * (left_a / left);
+                gb = g * (left_b / left);
+                tx = (annual_tax_cost(c, inc_a + ga, oas_a * 12.0, gov_inflate, is_age_65_plus(cur, age65_a)) - base_a)
+                   + (annual_tax_cost(c, inc_b + gb, oas_b * 12.0, gov_inflate, is_age_65_plus(cur, age65_b)) - base_b);
+                double g_next = event_lump_needed + tx;
+                if (fabs(g_next - g) < 0.01) { g = g_next; break; }
+                g = g_next;
+            }
+            if (left <= 0.005) { g = 0.0; ga = gb = tx = 0.0; }
+            if (g > left) {    /* capped: recompute tax at the cap */
+                g = left; ga = left_a; gb = left_b;
+                tx = (annual_tax_cost(c, inc_a + ga, oas_a * 12.0, gov_inflate, is_age_65_plus(cur, age65_a)) - base_a)
+                   + (annual_tax_cost(c, inc_b + gb, oas_b * 12.0, gov_inflate, is_age_65_plus(cur, age65_b)) - base_b);
+            } else {
+                ga = g * (left > 0 ? left_a / left : 0.0);
+                gb = g - ga;
+            }
+            cash_a += ga;
+            cash_b += gb;
+            event_reg_gross = ga + gb;
+            event_tax = tx;
+            event_lump_total_gross += event_reg_gross;
+            event_lump_total_tax += event_tax;
+            if (event_lump_needed - (event_reg_gross - event_tax) > 0.01) {
+                if (!money_exhausted_reported) { money_exhausted_reported = 1; money_exhausted_date = cur; }
+                money_exhausted_months++;
+            }
+        }
+        event_tfsa_total += event_from_tfsa;
+
         /* What was actually spent: a saved surplus (negative
            non_reg_draw_total) is not spending. */
         double net_takehome = net_of_tax + tfsa_topup + non_reg_draw_total;
@@ -730,12 +804,12 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (fund_b < 0) fund_b = 0;
 
         if (csv) {
-            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
+            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
                     year, month, draw_a, draw_b,
                     household_gross, tax_a, tax_b, credit_a, credit_b,
                     net_of_tax, non_reg_draw_total, tfsa_topup, jan_sweep_amount, net_takehome, tfsa_balance,
                     fund_a, fund_a_nonreg, fund_b, fund_b_nonreg, rrif_monthly_min_a, rrif_monthly_min_b,
-                    split_a_to_b, claw_a, claw_b, event_note);
+                    split_a_to_b, claw_a, claw_b, event_from_tfsa, event_reg_gross, event_tax, event_note);
         }
     }
 
@@ -788,6 +862,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (both_over_target_reported)
             printf("NOTE: RRIF minimums pushed both spouses above the gross target in %d month(s), starting %04d-%02d; taxable income split evenly (subject to the 50%% pension-splitting cap).\n",
                    both_over_target_months, both_over_target_date.year, both_over_target_date.month);
+        if (event_tfsa_total > 0.5 || event_lump_total_gross > 0.5)
+            printf("NOTE: one-time expenses beyond non-registered funds: $%.0f from the TFSA; $%.0f withdrawn from RRIFs, "
+                   "of which $%.0f was tax (nominal).\n", event_tfsa_total, event_lump_total_gross, event_lump_total_tax);
         if (oas_claw_months)
             printf("NOTE: OAS clawback (recovery tax) applied in %d month(s), starting %04d-%02d; $%.0f repaid in total (nominal).\n",
                    oas_claw_months, oas_claw_first.year, oas_claw_first.month, oas_claw_total);

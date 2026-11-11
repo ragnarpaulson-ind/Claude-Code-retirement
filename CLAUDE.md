@@ -49,9 +49,14 @@ make
 
 ## Model rules (sim.c, each month)
 1. **Start of month: one-time events.** Positive events split evenly into the
-   two non-registered accounts. Negative events come out of non-registered
-   first (proportionally), then any remainder from registered, split evenly;
-   if one registered account can't cover its half, the other covers the rest.
+   two non-registered accounts. Negative events: non-registered first
+   (proportionally), then TFSA (room restored next Jan), then the rest is a
+   registered lump settled after the month's regular draws: grossed up so
+   gross − tax = remainder, tax = annual_tax_cost(12×regular income + lump)
+   − annual_tax_cost(12×regular income) per person (tax − age credit + OAS
+   clawback), split by remaining registered balance, no pension splitting.
+   Unmet remainder counts as money ran out. CSV: event_from_tfsa,
+   event_from_registered, event_tax.
 2. **Fixed income per person:** CPP/OAS (early/late adjustment factors,
    indexed by gov inflation) plus non-registered yield (net ROI × balance,
    monthly, taxable). Non-registered principal does not compound.
@@ -159,6 +164,8 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 - One-time events were applied after the month's draws, causing a spurious
   taxable RRIF spike when an event coincided with a spending jump.
 - The extra registered draw was attributed by account size, not split.
+- Expenses beyond non-reg funds were taken from the RRIFs untaxed, skipping
+  the TFSA.
 - A surplus with both non-reg balances at 0 was silently counted as spent
   (and net_takehome showed income, not spending, in surplus months).
 - Account-exhausted notes only fired on a negative balance; draws are capped
@@ -177,3 +184,12 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 4. Survivor modelling done (fixed death dates). Not modelled: random
    mortality in Monte Carlo; CPP survivor rules under 65; OAS +10% at 75;
    GIS.
+5. Independent review (Nov 2026) open findings: RRIF minimum uses age at
+   Dec 31 instead of Jan 1 (year - dob.year); Ontario Health Premium, OAS
+   +10% at 75 and the pension income credit not modelled; non-reg return
+   taxed as 100% income; Ontario bracket thresholds and age-credit amounts
+   in sample_config.cfg are stale for 2026; TFSA grant not indexed or
+   halved after a death; cross-account sourcing can attribute > 50%;
+   Monte Carlo with mc_alloc_* but no --use-historical-cpi gives no warning;
+   tax is monthly income x 12 (uneven years over-taxed); event lumps are
+   not pension-split.

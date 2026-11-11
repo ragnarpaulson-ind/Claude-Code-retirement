@@ -53,3 +53,12 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Simulator binary and generated output
+retirement_sim
+retirement_projection.csv
+monte_carlo_results.csv
+
+# Personal plan files -- never commit (keep your real numbers local)
+retire.cfg
+bigevents.csv

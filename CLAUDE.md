@@ -141,6 +141,9 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 - One-time events were applied after the month's draws, causing a spurious
   taxable RRIF spike when an event coincided with a spending jump.
 - The extra registered draw was attributed by account size, not split.
+- Account-exhausted notes only fired on a negative balance; draws are capped
+  so balances land on 0, and the summary wrongly said "No account was
+  depleted". Now flagged when an account reaches ~0 from a positive balance.
 
 ## Open items / known issues
 1. Non-registered yield is computed on the live balance, so registered draws

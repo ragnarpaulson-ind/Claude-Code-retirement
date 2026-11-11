@@ -580,24 +580,30 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             money_exhausted_months++;
         }
 
+        double tfsa_pre = tfsa_balance, fund_a_pre = fund_a, fund_b_pre = fund_b;
         tfsa_balance = tfsa_balance * (1.0 + current_roi_pct / 1200.0) - tfsa_topup;
         tfsa_contribution_room_change += tfsa_topup;
 
         fund_a = fund_a * (1.0 + current_roi_pct / 1200.0) - cash_a;
         fund_b = fund_b * (1.0 + current_roi_pct / 1200.0) - cash_b;
 
-        if (tfsa_balance < 0) {
-            if (!tfsa_depleted_reported) { tfsa_depleted_reported = 1; tfsa_depleted_date = cur; }
-            tfsa_balance = 0;
+        /* An account counts as exhausted the month it reaches (about) zero
+           from a positive balance. Draws are capped at what an account
+           holds, so it normally lands on exactly 0 rather than going
+           negative -- checking only "< 0" missed that, and the summary then
+           claimed no account was depleted even when money ran out. */
+        if (tfsa_balance < 0.005 && tfsa_pre > 0.005 && !tfsa_depleted_reported) {
+            tfsa_depleted_reported = 1; tfsa_depleted_date = cur;
         }
-        if (fund_a < 0) {
-            if (!fund_a_depleted_reported) { fund_a_depleted_reported = 1; fund_a_depleted_date = cur; }
-            fund_a = 0;
+        if (fund_a < 0.005 && fund_a_pre > 0.005 && !fund_a_depleted_reported) {
+            fund_a_depleted_reported = 1; fund_a_depleted_date = cur;
         }
-        if (fund_b < 0) {
-            if (!fund_b_depleted_reported) { fund_b_depleted_reported = 1; fund_b_depleted_date = cur; }
-            fund_b = 0;
+        if (fund_b < 0.005 && fund_b_pre > 0.005 && !fund_b_depleted_reported) {
+            fund_b_depleted_reported = 1; fund_b_depleted_date = cur;
         }
+        if (tfsa_balance < 0) tfsa_balance = 0;
+        if (fund_a < 0) fund_a = 0;
+        if (fund_b < 0) fund_b = 0;
 
         if (csv) {
             fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",

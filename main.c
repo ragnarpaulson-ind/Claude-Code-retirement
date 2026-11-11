@@ -20,6 +20,8 @@ static void print_usage(const char *prog) {
     printf("  --monte-carlo            Run Monte Carlo simulation (requires --mc-returns-file)\n");
     printf("  --mc-in-turn             Run Monte Carlo simulations in turn, starting from each year in the historical returns set once (requires mc-returns-file)\n");
     printf("  --use-historical-cpi     Use historical CPI data for inflation (default: use override values)\n");
+    printf("  --with-guardrails        Monte Carlo: cut spending in steps when a trial falls behind the flat plan\n");
+    printf("                           (guardrail_trigger_pct / _step_pct / _max_cut_pct in the config)\n");
     printf("\n");
 }
 
@@ -54,6 +56,9 @@ int main(int argc, char **argv) {
 	    return run_monte_carlo(&cfg, out_path) ? 0 : 1;
     }
     else {
-	    return run_simulation(&cfg, out_path) ? 0 : 1;
+        if (cfg.mc_with_guardrails) {
+            fprintf(stderr, "Note: --with-guardrails only applies to Monte Carlo runs (a flat run is the plan itself).\n");
+        }
+        return run_simulation(&cfg, out_path) ? 0 : 1;
     }
 }

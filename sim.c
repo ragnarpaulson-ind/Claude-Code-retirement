@@ -57,13 +57,35 @@ static double equalize_split(double taxable_a, double taxable_b, double split,
  * for different candidate draw amounts. draw_a/draw_b are the registered
  * amounts ATTRIBUTED to each person's tax return (after pension-income
  * splitting), not necessarily the cash taken from each person's account. */
+/* OAS recovery tax ("clawback"): oas_clawback_rate of annual net income
+ * above the indexed threshold, capped at the OAS actually received. Applied
+ * in the same year here (CRA recovers it from the following July-June
+ * payments). Returns the monthly amount. */
+static double oas_clawback(const Config *c, double income_monthly, double oas_monthly, double gov_inflate) {
+    if (oas_monthly <= 0.0 || c->oas_clawback_rate <= 0.0) return 0.0;
+    double excess = income_monthly * 12.0 - c->oas_clawback_threshold * gov_inflate;
+    if (excess <= 0.0) return 0.0;
+    double claw = c->oas_clawback_rate * excess / 12.0;
+    return claw < oas_monthly ? claw : oas_monthly;
+}
+
 static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, double gov_inflate,
                          double fixed_a, double fixed_b, double draw_a, double draw_b,
+                         double oas_a, double oas_b,
                          double *out_tax_a, double *out_tax_b,
                          double *out_credit_a, double *out_credit_b,
+                         double *out_claw_a, double *out_claw_b,
                          double *out_household_gross, double *out_net_of_tax) {
-    double taxable_a = draw_a + fixed_a;
-    double taxable_b = draw_b + fixed_b;
+    double income_a = draw_a + fixed_a;
+    double income_b = draw_b + fixed_b;
+
+    /* The clawback is repaid out of OAS and deducted on the return (line
+       23500), so it is neither received nor taxed: taxable income, and the
+       net income the age credit tests, are income less the clawback. */
+    double claw_a = oas_clawback(c, income_a, oas_a, gov_inflate);
+    double claw_b = oas_clawback(c, income_b, oas_b, gov_inflate);
+    double taxable_a = income_a - claw_a;
+    double taxable_b = income_b - claw_b;
 
     double tax_a = -tax_owed_annual(c, taxable_a * 12.0, gov_inflate) / 12.0;
     double tax_b = -tax_owed_annual(c, taxable_b * 12.0, gov_inflate) / 12.0;
@@ -74,8 +96,10 @@ static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, d
     *out_tax_b = tax_b;
     *out_credit_a = credit_a;
     *out_credit_b = credit_b;
-    *out_household_gross = taxable_a + taxable_b;
-    *out_net_of_tax = *out_household_gross + tax_a + tax_b + credit_a + credit_b;
+    if (out_claw_a) *out_claw_a = claw_a;
+    if (out_claw_b) *out_claw_b = claw_b;
+    *out_household_gross = income_a + income_b;
+    *out_net_of_tax = *out_household_gross - claw_a - claw_b + tax_a + tax_b + credit_a + credit_b;
 }
 
 int run_simulation_ex(const Config *c, const char *csv_path, const historical_returns_t *roi_override,
@@ -88,7 +112,7 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         fprintf(csv, "date,reg_a_wd, reg_b_wd,household_gross,tax_a,tax_b,age_credit_a,age_credit_b,"
                      "net_of_tax,non_reg_shortfall_draw,tfsa_topup,jan_nonreg_to_tfsa_sweep,net_takehome,tfsa_balance,"
                      "registered_balance_a,non-registered_balance_a,registered_balance_b,non-registered_balance_b,rrif_min_a,rrif_min_b,"
-                     "split_a_to_b,event\n");
+                     "split_a_to_b,oas_clawback_a,oas_clawback_b,event\n");
     }
 
     Date age65_a, age65_b;
@@ -140,6 +164,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     int both_over_target_reported = 0;
     Date both_over_target_date = {0,0,0};
     int both_over_target_months = 0;
+    int oas_claw_months = 0;
+    Date oas_claw_first = {0,0,0};
+    double oas_claw_total = 0.0;   /* nominal dollars, both spouses */
 
     double annual_net_takehome = 0.0;
     int total_months = c->sim_years * 12;
@@ -468,9 +495,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double reg_leftover_a = fund_a_avail - cash_a;
         double reg_leftover_b = fund_b_avail - cash_b;
 
-        double tax_a, tax_b, credit_a, credit_b, household_gross, net_of_tax;
-        compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b,
-                    &tax_a, &tax_b, &credit_a, &credit_b, &household_gross, &net_of_tax);
+        double tax_a, tax_b, credit_a, credit_b, claw_a, claw_b, household_gross, net_of_tax;
+        compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b, oas_a, oas_b,
+                    &tax_a, &tax_b, &credit_a, &credit_b, &claw_a, &claw_b, &household_gross, &net_of_tax);
 
         double target_net_effective = c->target_net_monthly * personal_inflate;
 	    int renting = date_ge(cur, c->rent_start_date) && rent_monthly > 0.01;
@@ -541,7 +568,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
                 double ta, tb, ca, cb, hg, net2;
                 compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b,
-                            draw_a + extra_a - ds, draw_b + extra_b + ds, &ta, &tb, &ca, &cb, &hg, &net2);
+                            draw_a + extra_a - ds, draw_b + extra_b + ds, oas_a, oas_b,
+                            &ta, &tb, &ca, &cb, NULL, NULL, &hg, &net2);
                 double net_gain = net2 - net_of_tax_base;
                 double diff = remaining - net_gain;
                 if (fabs(diff) < 0.01) { extra += diff; break; }
@@ -563,8 +591,13 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
             split_a_to_b += ds;
             cash_a += extra_a;
             cash_b += extra_b;
-            compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b,
-                        &tax_a, &tax_b, &credit_a, &credit_b, &household_gross, &net_of_tax);
+            compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b, oas_a, oas_b,
+                        &tax_a, &tax_b, &credit_a, &credit_b, &claw_a, &claw_b, &household_gross, &net_of_tax);
+        }
+        if (claw_a + claw_b > 0.005) {
+            if (!oas_claw_months) oas_claw_first = cur;
+            oas_claw_months++;
+            oas_claw_total += claw_a + claw_b;
         }
 
         double net_takehome = net_of_tax + tfsa_topup + (non_reg_draw_total > 0 ? non_reg_draw_total : 0.0);
@@ -606,12 +639,12 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (fund_b < 0) fund_b = 0;
 
         if (csv) {
-            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
+            fprintf(csv, "%04d-%02d-01,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s\n",
                     year, month, draw_a, draw_b,
                     household_gross, tax_a, tax_b, credit_a, credit_b,
                     net_of_tax, non_reg_draw_total, tfsa_topup, jan_sweep_amount, net_takehome, tfsa_balance,
                     fund_a, fund_a_nonreg, fund_b, fund_b_nonreg, rrif_monthly_min_a, rrif_monthly_min_b,
-                    split_a_to_b, event_note);
+                    split_a_to_b, claw_a, claw_b, event_note);
         }
     }
 
@@ -664,6 +697,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (both_over_target_reported)
             printf("NOTE: RRIF minimums pushed both spouses above the gross target in %d month(s), starting %04d-%02d; taxable income split evenly (subject to the 50%% pension-splitting cap).\n",
                    both_over_target_months, both_over_target_date.year, both_over_target_date.month);
+        if (oas_claw_months)
+            printf("NOTE: OAS clawback (recovery tax) applied in %d month(s), starting %04d-%02d; $%.0f repaid in total (nominal).\n",
+                   oas_claw_months, oas_claw_first.year, oas_claw_first.month, oas_claw_total);
         if (household_shortfall_reported)
             printf("WARNING: registered funds combined were insufficient to meet the base/RRIF-minimum draw in %d month(s), starting %04d-%02d.\n",
                    household_shortfall_months, household_shortfall_date.year, household_shortfall_date.month);

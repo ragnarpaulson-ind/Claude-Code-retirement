@@ -79,6 +79,11 @@ typedef struct {
     double prov_age_credit_rate;
     double prov_age_credit_clawback_start;
     double age_credit_clawback_rate;
+    /* OAS recovery tax: oas_clawback_rate of individual net income above
+       oas_clawback_threshold (annual, today's dollars, indexed like the
+       brackets), capped at that person's OAS. Rate 0 disables it. */
+    double oas_clawback_threshold;
+    double oas_clawback_rate;
 
     double rent_monthly;  /* if >0, monthly rent expense in today's dollarsstarting at rent_start_date */
 

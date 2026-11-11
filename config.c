@@ -83,6 +83,8 @@ void config_defaults(Config *c) {
     c->fed_age_credit_amount = 0.0;
     c->fed_age_credit_rate = 0.0;
     c->fed_age_credit_clawback_start = 1e18;
+    c->oas_clawback_threshold = 95323.0;   /* 2026 income year, Canada.ca */
+    c->oas_clawback_rate = 0.15;
     c->prov_age_credit_amount = 0.0;
     c->prov_age_credit_rate = 0.0;
     c->prov_age_credit_clawback_start = 1e18;
@@ -188,6 +190,8 @@ int config_load(Config *c, const char *path) {
         else if (strcmp(key, "fed_age_credit_amount") == 0) { c->fed_age_credit_amount = atof(val); }
         else if (strcmp(key, "fed_age_credit_rate") == 0) { c->fed_age_credit_rate = atof(val); }
         else if (strcmp(key, "fed_age_credit_clawback_start") == 0) { c->fed_age_credit_clawback_start = atof(val); }
+        else if (strcmp(key, "oas_clawback_threshold") == 0) { c->oas_clawback_threshold = atof(val); }
+        else if (strcmp(key, "oas_clawback_rate") == 0) { c->oas_clawback_rate = atof(val); }
         else if (strcmp(key, "prov_age_credit_amount") == 0) { c->prov_age_credit_amount = atof(val); }
         else if (strcmp(key, "prov_age_credit_rate") == 0) { c->prov_age_credit_rate = atof(val); }
         else if (strcmp(key, "prov_age_credit_clawback_start") == 0) { c->prov_age_credit_clawback_start = atof(val); }

@@ -106,6 +106,14 @@ The simulator advances month by month. For each month it:
 6. **Computes tax and age credits** separately for each person, using the
    configured progressive tax brackets and the 65+ age credit with its
    income-tested clawback.
+   - **OAS clawback (recovery tax):** each person repays `oas_clawback_rate`
+     (15%) of their net income above `oas_clawback_threshold` ($95,323 for
+     2026, indexed with government inflation), up to their full OAS. The
+     repayment is deductible, so clawed-back OAS is not also taxed, and the
+     age credit is tested on income after it. CRA actually recovers it from
+     the following July–June OAS payments; the simulator applies it in the
+     same year. The extra registered draw is sized with the clawback
+     included.
 
 7. **Covers any shortfall** against the household net spending target
    (`target_net_monthly`, plus rent once it starts) in this order:
@@ -222,6 +230,8 @@ prints an annual summary to the console. In Monte Carlo mode it also writes
 Notes on the projection columns:
 - `reg_a_wd` / `reg_b_wd` are the registered income reported on each
   person's tax return after income splitting.
+- `oas_clawback_a` / `oas_clawback_b` are the monthly OAS recovery tax for
+  each person (already taken out of `net_of_tax`).
 - `split_a_to_b` is the amount moved between returns by income splitting:
   positive means part of A's income is reported on B's return, negative the
   reverse.

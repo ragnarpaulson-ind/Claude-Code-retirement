@@ -72,6 +72,11 @@ make
      only once the transferor is 65+ in that calendar year.
 5. **Cross-account cash sourcing:** if one registered account is dry, the
    other supplies the cash; tax attribution is unchanged.
+   Tax, per person (compute_net) -- OAS clawback: claw = min(OAS, oas_clawback_rate ×
+   (annual income − oas_clawback_threshold × gov_inflate)) per person,
+   applied same-year; taxable income and the age-credit test use
+   income − claw, and net_of_tax subtracts it. CSV columns
+   `oas_clawback_a/b` sit before `event`.
 6. **Shortfall vs net target** (`target_net_monthly`, personal-inflated, plus
    rent once `rent_start_date` passes) is covered in order: non-registered
    principal → TFSA → extra taxable registered draw, solved by iterative
@@ -154,5 +159,5 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
    not handled (owner is aware, deferred).
 3. Block bootstrap dropped (owner's call: --mc-in-turn and independent
    years bracket it). Shortfall reporting folded into guardrail stats.
-4. Planned next: OAS recovery tax (clawback), then survivor modelling
-   (death date, ~80% spending, survivor CPP, single-return tax).
+4. Planned next: survivor modelling (death date, ~80% spending, survivor
+   CPP, single-return tax). Not modelled: OAS +10% at 75.

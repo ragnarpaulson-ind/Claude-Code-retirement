@@ -325,6 +325,34 @@ Known limitations:
 - Bonds and cash benefited from the falling-rate era of 1981–2000; their
   2001–2025 real returns (about 1% and 0%) are closer to today's yields.
 
+#### Spending guardrails (`--with-guardrails`)
+
+Real retirees don't spend a fixed amount through a market crash; they tighten
+up. With `--with-guardrails`, each Monte Carlo trial does the same:
+
+- First the simulator runs your **flat plan** (`roi_annual_pct` less
+  `annual_fee_pct`, fixed inflation) and records its total balance at each
+  December 31, in today's dollars.
+- Each January, a trial compares its own balance (in today's dollars, using
+  its own historical inflation) with the plan's on the same date.
+- More than `guardrail_trigger_pct` (default 15%) behind: spending is cut a
+  further `guardrail_step_pct` (default 5%), up to `guardrail_max_cut_pct`
+  (default 20%). Between the trigger and the plan: the current cut is held.
+  Back on or ahead of the plan's path: full spending is restored.
+- A cut scales the whole net spending target (including rent) and the
+  per-person gross target, so registered draws drop too.
+
+The report adds how many trials needed a cut, whether money still ran out,
+the deepest cut reached, and how many years cuts lasted. The per-trial CSV
+gains `guardrail_years_cut`, `guardrail_max_cut_pct` and
+`guardrail_first_cut_year`. "Success" with guardrails means meeting the
+reduced target while a cut is in force.
+
+Guardrails steer each trial back towards the flat plan, so **they only help
+if the flat plan itself lasts the whole horizon.** If the flat run reports
+"money ran out", fix the plan first; the Monte Carlo run prints a note when
+this happens.
+
 ### Older data files
 
 All in the `year,return_pct,cpi_pct` format, sharing the same Canadian CPI

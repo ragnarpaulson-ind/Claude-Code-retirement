@@ -79,7 +79,7 @@ static void compute_net(const Config *c, Date cur, Date age65_a, Date age65_b, d
 }
 
 int run_simulation_ex(const Config *c, const char *csv_path, const historical_returns_t *roi_override,
-                       int quiet, SimResult *result_out) {
+                       int quiet, SimResult *result_out, const SimResult *plan) {
     FILE *csv = NULL;
     if (csv_path) {
         csv = fopen(csv_path, "w");
@@ -116,6 +116,14 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     double rrif_monthly_min_b = fund_b * rrif_min_factor(c->sim_start_date.year - c->b.dob.year) / 12.0;
 
     double gov_inflate = 1.0;
+    /* Cumulative price level for expressing balances in today's dollars:
+       like personal_inflate but with no go-slow pause. */
+    double price_index = 1.0;
+    /* Guardrails: current spending cut, % (0 = full spending) */
+    double guardrail_cut_pct = 0.0;
+    int guardrail_years_cut = 0, guardrail_first_cut_year = 0;
+    double guardrail_deepest = 0.0;
+    if (result_out) result_out->n_year_ends = 0;
     double personal_inflate = 1.0;
 
     int prev_year = c->sim_start_date.year;
@@ -175,7 +183,41 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
                 }
             }
             annual_net_takehome = 0.0;
+
+            /* Dec 31 total balance in today's dollars, recorded for use as
+               a plan path and compared against the plan for guardrails. */
+            {
+                int idx = prev_year - c->sim_start_date.year;
+                double real_total = (tfsa_balance + fund_a + fund_b + fund_a_nonreg + fund_b_nonreg) / price_index;
+                if (result_out && idx >= 0 && idx < MAX_PATH_YEARS) {
+                    result_out->year_end_real_total[idx] = real_total;
+                    result_out->n_year_ends = idx + 1;
+                }
+                if (plan && idx >= 0 && idx < plan->n_year_ends && plan->year_end_real_total[idx] > 1.0) {
+                    /* (If the plan itself has run dry there is no path to
+                       compare against: hold the current level.) */
+                    double ratio = real_total / plan->year_end_real_total[idx];
+                    if (ratio < 1.0 - c->guardrail_trigger_pct / 100.0) {
+                        guardrail_cut_pct += c->guardrail_step_pct;
+                        if (guardrail_cut_pct > c->guardrail_max_cut_pct) guardrail_cut_pct = c->guardrail_max_cut_pct;
+                    } else if (ratio >= 1.0) {
+                        guardrail_cut_pct = 0.0;
+                    }
+                }
+                if (guardrail_cut_pct > 0.0) {
+                    guardrail_years_cut++;
+                    if (!guardrail_first_cut_year) guardrail_first_cut_year = year;
+                    if (guardrail_cut_pct > guardrail_deepest) guardrail_deepest = guardrail_cut_pct;
+                }
+            }
             prev_year = year;
+
+            /* price level for the new year, same CPI as spending uses but
+               never paused */
+            if (c->mc_use_historical_cpi && roi_override)
+                price_index *= (1.0 + roi_override[year - c->sim_start_date.year].cpi / 100.0);
+            else
+                price_index *= (1.0 + c->personal_inflation_pct / 100.0);
 
             if (c->mc_use_historical_cpi && roi_override) {
                 /* If the Monte Carlo trial is using historical CPI, then the
@@ -305,7 +347,10 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double fixed_a = cpp_a + oas_a + non_reg_income_a;
         double fixed_b = cpp_b + oas_b + non_reg_income_b;
 
-        double target_gross_pp = retired ? c->target_gross_monthly * personal_inflate : 0.0;
+        /* Guardrail cut (0 unless --with-guardrails has triggered one) scales
+           the whole spending plan: net target and per-person gross target. */
+        double spend_scale = 1.0 - guardrail_cut_pct / 100.0;
+        double target_gross_pp = retired ? c->target_gross_monthly * personal_inflate * spend_scale : 0.0;
         /* need_x: the registered draw that lands person x exactly on their
            gross target (before the RRIF-minimum floor is applied). */
         double need_a = retired ? (target_gross_pp - fixed_a) : 0.0;
@@ -430,6 +475,7 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double target_net_effective = c->target_net_monthly * personal_inflate;
 	    int renting = date_ge(cur, c->rent_start_date) && rent_monthly > 0.01;
 	    if (renting) target_net_effective += rent_monthly;
+        target_net_effective *= spend_scale;
         double shortfall = retired ? (target_net_effective - net_of_tax) : 0.0;
 
         /* first try to cover the shortfall with the non registered accounts, take from each account 
@@ -587,6 +633,9 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         result_out->ending_nonreg_a = fund_a_nonreg;
         result_out->ending_nonreg_b = fund_b_nonreg;
         result_out->ending_total = tfsa_balance + fund_a + fund_b + fund_a_nonreg + fund_b_nonreg;
+        result_out->guardrail_years_cut = guardrail_years_cut;
+        result_out->guardrail_max_cut_pct = guardrail_deepest;
+        result_out->guardrail_first_cut_year = guardrail_first_cut_year;
     }
 
     if (!quiet) {
@@ -625,5 +674,5 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
 /* Backward-compatible entry point: unchanged behaviour for existing callers. */
 int run_simulation(const Config *c, const char *csv_path) {
-    return run_simulation_ex(c, csv_path, NULL, 0, NULL);
+    return run_simulation_ex(c, csv_path, NULL, 0, NULL, NULL);
 }

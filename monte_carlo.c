@@ -342,6 +342,38 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
     double *ending_totals = malloc(trials * sizeof(double));
     int *ran_out_years = malloc(trials * sizeof(int));  /* -1 if never ran out */
 
+    /* Guardrails: the flat plan (roi_annual_pct net of fees, fixed
+       inflation) supplies the path each trial is compared against. */
+    SimResult plan;
+    const SimResult *plan_ptr = NULL;
+    int gr_any_cut = 0, gr_succ_with_cut = 0;
+    int *gr_years = NULL;
+    int gr_depth_count[64] = {0};      /* trials whose deepest cut is step*(i) */
+    int gr_n_steps = 0;
+    if (c->mc_with_guardrails) {
+        if (c->guardrail_step_pct <= 0.0 || c->guardrail_max_cut_pct < c->guardrail_step_pct ||
+            c->guardrail_max_cut_pct >= 100.0 || c->guardrail_trigger_pct <= 0.0 || c->guardrail_trigger_pct >= 100.0) {
+            fprintf(stderr, "Invalid guardrails: need 0 < guardrail_step_pct <= guardrail_max_cut_pct < 100 "
+                            "and 0 < guardrail_trigger_pct < 100.\n");
+            free(returns); free(roi_by_year); free(ending_totals); free(ran_out_years);
+            return 0;
+        }
+        gr_n_steps = (int)(c->guardrail_max_cut_pct / c->guardrail_step_pct + 0.5);
+        if (gr_n_steps > 63) gr_n_steps = 63;
+        run_simulation_ex(c, NULL, NULL, 1, &plan, NULL);
+        plan_ptr = &plan;
+        gr_years = calloc(trials, sizeof(int));
+        printf("Guardrails ON: each January, if the balance (today's dollars) is more than %.0f%% behind the flat plan\n"
+               "  (roi_annual_pct %.2f%% less annual_fee_pct %.2f%%, personal inflation %.2f%%), cut spending a further %.0f%%,\n"
+               "  to at most %.0f%%; restore full spending once back on the plan's path.\n",
+               c->guardrail_trigger_pct, c->roi_annual_pct, c->annual_fee_pct, c->personal_inflation_pct,
+               c->guardrail_step_pct, c->guardrail_max_cut_pct);
+        if (plan.money_ran_out)
+            printf("  Note: the flat plan itself runs out of money in %04d-%02d; after that there is no path to compare\n"
+                   "  against, so trials hold whatever cut they have.\n",
+                   plan.money_ran_out_date.year, plan.money_ran_out_date.month);
+    }
+
     int successes = 0;
 
     /* Per-trial CSV, for anyone who wants to look at the full distribution
@@ -362,7 +394,8 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
     FILE *mc_csv = fopen(mc_csv_path, "w");
     if (mc_csv) {
         fprintf(mc_csv, "trial,success,ending_total,ending_tfsa,ending_registered_a,ending_registered_b,"
-                        "ending_nonreg_a,ending_nonreg_b,money_ran_out_year\n");
+                        "ending_nonreg_a,ending_nonreg_b,money_ran_out_year%s\n",
+                        plan_ptr ? ",guardrail_years_cut,guardrail_max_cut_pct,guardrail_first_cut_year" : "");
     }
 
     for (int t = 0; t < trials; t++) {
@@ -384,17 +417,31 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
         }
         
         SimResult result;
-        run_simulation_ex(c, NULL, roi_by_year, 1, &result);
+        run_simulation_ex(c, NULL, roi_by_year, 1, &result, plan_ptr);
+        if (plan_ptr) {
+            gr_years[t] = result.guardrail_years_cut;
+            if (result.guardrail_years_cut > 0) {
+                gr_any_cut++;
+                if (!result.money_ran_out) gr_succ_with_cut++;
+            }
+            int d = (int)(result.guardrail_max_cut_pct / c->guardrail_step_pct + 0.5);
+            if (d > gr_n_steps) d = gr_n_steps;
+            gr_depth_count[d]++;
+        }
 
         ending_totals[t] = result.ending_total;
         ran_out_years[t] = result.money_ran_out ? result.money_ran_out_date.year : -1;
         if (!result.money_ran_out) successes++;
 
         if (mc_csv) {
-            fprintf(mc_csv, "%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d\n",
+            fprintf(mc_csv, "%d,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%d",
                     t + 1, !result.money_ran_out, result.ending_total, result.ending_tfsa,
                     result.ending_registered_a, result.ending_registered_b,
                     result.ending_nonreg_a, result.ending_nonreg_b, ran_out_years[t]);
+            if (plan_ptr)
+                fprintf(mc_csv, ",%d,%.1f,%d", result.guardrail_years_cut,
+                        result.guardrail_max_cut_pct, result.guardrail_first_cut_year);
+            fprintf(mc_csv, "\n");
         }
     }
     if (mc_csv) fclose(mc_csv);
@@ -436,6 +483,29 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
         printf("  median:   %d\n", fail_years[n_failed / 2]);
         printf("  latest:   %d\n", fail_years[n_failed - 1]);
     }
+    if (plan_ptr) {
+        printf("\nGuardrails:\n");
+        printf("  Trials that never needed a cut:     %5.1f%%\n", 100.0 * (trials - gr_any_cut) / trials);
+        printf("  Trials with a cut, money lasted:    %5.1f%%\n", 100.0 * gr_succ_with_cut / trials);
+        printf("  Trials with a cut, money ran out:   %5.1f%%\n", 100.0 * (gr_any_cut - gr_succ_with_cut) / trials);
+        printf("  Deepest cut reached:");
+        for (int i = 0; i <= gr_n_steps; i++)
+            printf("  %.0f%%: %.1f%%", i * c->guardrail_step_pct, 100.0 * gr_depth_count[i] / trials);
+        printf("  (of trials)\n");
+        if (gr_any_cut > 0) {
+            int *yrs = malloc(gr_any_cut * sizeof(int)), k = 0;
+            for (int t = 0; t < trials; t++) if (gr_years[t] > 0) yrs[k++] = gr_years[t];
+            for (int i = 1; i < k; i++) {
+                int key = yrs[i], j = i - 1;
+                while (j >= 0 && yrs[j] > key) { yrs[j+1] = yrs[j]; j--; }
+                yrs[j+1] = key;
+            }
+            printf("  Years spent with a cut, among trials that cut: median %d, p90 %d (of %d simulated years)\n",
+                   yrs[k / 2], yrs[(int)(0.9 * (k - 1))], c->sim_years);
+            free(yrs);
+        }
+        printf("  (Success above means meeting the REDUCED target while a cut is in force.)\n");
+    }
     printf("\nPer-trial detail written to: %s\n", mc_csv_path);
 
     free(returns);
@@ -444,6 +514,7 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
     free(ran_out_years);
     free(sorted_totals);
     free(fail_years);
+    free(gr_years);
 
     return 1;
 }

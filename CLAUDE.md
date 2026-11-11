@@ -110,6 +110,14 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
   k = (1+target) / (compound real return over the file), so the compound
   real average equals the target and each year keeps its CPI and relative
   deviation. Needs `mc_alloc_*` weights; meant for `--use-historical-cpi`.
+- `--with-guardrails`: run_monte_carlo first runs the flat plan (roi_override
+  NULL) and passes its `year_end_real_total[]` path (Dec 31 total balance /
+  cumulative CPI, no go-slow pause) to each trial via run_simulation_ex's
+  `plan` argument. Each January: behind plan by > guardrail_trigger_pct ->
+  cut += guardrail_step_pct (cap guardrail_max_cut_pct); ratio >= 1 ->
+  cut = 0; else hold. spend_scale = 1 - cut scales target_net_effective
+  (incl. rent) and target_gross_pp. If the plan's balance is ~0 there is no
+  path: hold.
 - `--monte-carlo`: each simulated year drawn independently with replacement.
   `--mc-in-turn`: one trial per starting year, wrapping around.
 - Config keys: `mc_trials` (default 10000), `mc_returns_file`, `mc_seed`
@@ -141,7 +149,7 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
    flat for the year (not implemented).
 2. Non-registered principal does not compound; ROI above needed income is
    not handled (owner is aware, deferred).
-3. Planned Monte Carlo improvements, in order: multi-year block
-   bootstrap; shortfall reporting (when, how deep, today's dollars).
+3. Block bootstrap dropped (owner's call: --mc-in-turn and independent
+   years bracket it). Shortfall reporting folded into guardrail stats.
 4. Planned next: OAS recovery tax (clawback), then survivor modelling
    (death date, ~80% spending, survivor CPP, single-return tax).

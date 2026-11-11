@@ -96,6 +96,10 @@ void config_defaults(Config *c) {
     c->mc_run = 0;
     c->mc_in_turn = 0;
     c->mc_use_historical_cpi = 0;
+    c->guardrail_trigger_pct = 15.0;
+    c->guardrail_step_pct = 5.0;
+    c->guardrail_max_cut_pct = 20.0;
+    c->mc_with_guardrails = 0;
     for (int i = 0; i < N_ASSET_CLASSES; i++) {
         c->mc_alloc[i] = 0.0;
         c->mc_real_return[i] = 0.0;
@@ -192,6 +196,9 @@ int config_load(Config *c, const char *path) {
 
         else if (strcmp(key, "mc_trials") == 0) { c->mc_trials = atoi(val); }
         else if (strcmp(key, "mc_returns_file") == 0) { strncpy(c->mc_returns_file, val, sizeof(c->mc_returns_file)-1); }
+        else if (strcmp(key, "guardrail_trigger_pct") == 0) { c->guardrail_trigger_pct = atof(val); }
+        else if (strcmp(key, "guardrail_step_pct") == 0) { c->guardrail_step_pct = atof(val); }
+        else if (strcmp(key, "guardrail_max_cut_pct") == 0) { c->guardrail_max_cut_pct = atof(val); }
         else if (strcmp(key, "mc_seed") == 0) { c->mc_seed = (unsigned int)strtoul(val, NULL, 10); }
         else if (parse_alloc_key(c, key, val)) { /* mc_alloc_ / mc_real_return_<asset class> */ }
         else {
@@ -258,5 +265,6 @@ void config_apply_overrides(Config *c, int argc, char **argv) {
 	    else if (strcmp(argv[i], "--monte-carlo") == 0) c->mc_run = 1;
         else if (strcmp(argv[i], "--mc-in-turn") == 0) c->mc_in_turn = 1;
         else if (strcmp(argv[i], "--use-historical-cpi") == 0) c->mc_use_historical_cpi = 1;
+        else if (strcmp(argv[i], "--with-guardrails") == 0) c->mc_with_guardrails = 1;
     }
 }

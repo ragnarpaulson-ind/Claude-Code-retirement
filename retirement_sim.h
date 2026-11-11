@@ -8,6 +8,7 @@
 
 /* Asset classes in historical_returns_cad.csv, in config/key order. */
 #define N_ASSET_CLASSES 5
+#define MAX_PATH_YEARS 128   /* calendar years a simulation can span */
 extern const char *const ASSET_CLASS_NAMES[N_ASSET_CLASSES];
 #define WHO_NONE 0
 #define WHO_A 1   /* "person A" -- e.g. Ragnar */
@@ -106,6 +107,17 @@ typedef struct {
        co-movement and each year's CPI are kept. Unset = pure history. */
     double mc_real_return[N_ASSET_CLASSES];
     int    mc_real_return_set[N_ASSET_CLASSES];
+    /* Spending guardrails (Monte Carlo, --with-guardrails). Each January the
+       trial's total balance in today's dollars is compared with the flat
+       plan's (roi_annual_pct, fixed inflation) at the same date. More than
+       guardrail_trigger_pct behind: cut spending another guardrail_step_pct,
+       up to guardrail_max_cut_pct. Back on (or ahead of) the plan: restore
+       fully. Cuts apply to the whole net target (incl. rent) and the
+       per-person gross target. */
+    double guardrail_trigger_pct;
+    double guardrail_step_pct;
+    double guardrail_max_cut_pct;
+    unsigned int mc_with_guardrails;  /* set by --with-guardrails */
 } Config;
 
 void config_defaults(Config *c);
@@ -134,6 +146,15 @@ typedef struct {
     double ending_nonreg_a;
     double ending_nonreg_b;
     double ending_total;          /* sum of all five balances above, for a quick single-number outcome */
+    /* Total balance at each Dec 31 in today's dollars (deflated by cumulative
+       spending inflation), index = year - sim_start year. Used as the flat
+       plan's path for guardrails. */
+    int    n_year_ends;
+    double year_end_real_total[MAX_PATH_YEARS];
+    /* Guardrail outcome (zero when guardrails are off) */
+    int    guardrail_years_cut;       /* calendar years spent with any cut */
+    double guardrail_max_cut_pct;     /* deepest cut reached */
+    int    guardrail_first_cut_year;  /* 0 if never cut */
 } SimResult;
 
 /* Full simulation entry point. If roi_override is non-NULL, it must point to
@@ -147,8 +168,10 @@ typedef struct {
    too slow across thousands of runs). result_out, if non-NULL, is filled
    with the ending balances and depletion outcome. Returns 0 only if csv_path
    was given but couldn't be opened; 1 otherwise. */
+/* plan: the flat plan's result (for its year_end_real_total path); non-NULL
+   turns guardrails on for this run. */
 int run_simulation_ex(const Config *c, const char *csv_path, const historical_returns_t *roi_override,
-                       int quiet, SimResult *result_out);
+                       int quiet, SimResult *result_out, const SimResult *plan);
 
 /* Runs c->mc_trials trials, each resampling a random annual return path from
    c->mc_returns_file (one year picked independently with replacement per

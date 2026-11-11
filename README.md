@@ -254,6 +254,11 @@ prints an annual summary to the console. In Monte Carlo mode it also writes
 Notes on the projection columns:
 - `reg_a_wd` / `reg_b_wd` are the registered income reported on each
   person's tax return after income splitting.
+- `non_reg_shortfall_draw` is negative in a month with a **surplus**
+  (after-tax income above the spending target, e.g. RRIF minimums or the
+  gross-target draws netting more than you spend): the surplus is saved to
+  the non-registered accounts, and January's sweep moves it into the TFSA
+  when there is room. `net_takehome` is what was actually spent.
 - `oas_clawback_a` / `oas_clawback_b` are the monthly OAS recovery tax for
   each person (already taken out of `net_of_tax`).
 - `split_a_to_b` is the amount moved between returns by income splitting:

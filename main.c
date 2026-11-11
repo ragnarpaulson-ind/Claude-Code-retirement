@@ -17,6 +17,9 @@ static void print_usage(const char *prog) {
     printf("  --tfsa <amount>          Override starting TFSA balance\n");
     printf("  --registered-a <amount>  Override person A's starting registered (RRSP/RRIF/LIF) balance\n");
     printf("  --registered-b <amount>  Override person B's starting registered (RRSP/RRIF/LIF) balance\n");
+    printf("  --death-a <YYYY-MM-DD|none>  Survivor scenario: person A's death date (overrides the config;\n");
+    printf("                           'none' ignores a date set there). Monte Carlo uses it in every trial.\n");
+    printf("  --death-b <YYYY-MM-DD|none>  Same for person B\n");
     printf("  --monte-carlo            Run Monte Carlo simulation (requires --mc-returns-file)\n");
     printf("  --mc-in-turn             Run Monte Carlo simulations in turn, starting from each year in the historical returns set once (requires mc-returns-file)\n");
     printf("  --use-historical-cpi     Use historical CPI data for inflation (default: use override values)\n");
@@ -50,6 +53,16 @@ int main(int argc, char **argv) {
     printf("  %s: retirement %04d-%02d-%02d\n", cfg.a.name, cfg.retirement_date.year, cfg.retirement_date.month, cfg.retirement_date.day);
     printf("  Simulating from %04d-%02d-%02d for %d years -> %s\n\n",
            cfg.sim_start_date.year, cfg.sim_start_date.month, cfg.sim_start_date.day, cfg.sim_years, out_path);
+
+    if (cfg.a.death_date.year || cfg.b.death_date.year) {
+        printf("  Survivor scenario%s:", (cfg.mc_run || cfg.mc_in_turn) ? " (every trial)" : "");
+        if (cfg.a.death_date.year)
+            printf(" %s dies %04d-%02d-%02d", cfg.a.name, cfg.a.death_date.year, cfg.a.death_date.month, cfg.a.death_date.day);
+        if (cfg.a.death_date.year && cfg.b.death_date.year) printf(",");
+        if (cfg.b.death_date.year)
+            printf(" %s dies %04d-%02d-%02d", cfg.b.name, cfg.b.death_date.year, cfg.b.death_date.month, cfg.b.death_date.day);
+        printf("\n\n");
+    }
 
     if (cfg.mc_run || cfg.mc_in_turn) {
         printf("Running Monte Carlo simulation with %d trials...\n", cfg.mc_trials);

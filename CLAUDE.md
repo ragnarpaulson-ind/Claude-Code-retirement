@@ -97,6 +97,7 @@ make
    × deceased CPP, combined max − own), net target × survivor_spending_pct
    (rent added after, in full), positive events go to the survivor. Second
    death: break out of the month loop; estate noted in the summary.
+   CLI `--death-a/--death-b <date|none>` override the config dates.
 
 Inflation: `personal_inflation_pct` for spending targets (paused during the
 "go slow" window) and rent (always inflates, ignores go-slow);

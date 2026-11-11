@@ -282,5 +282,17 @@ void config_apply_overrides(Config *c, int argc, char **argv) {
         else if (strcmp(argv[i], "--mc-in-turn") == 0) c->mc_in_turn = 1;
         else if (strcmp(argv[i], "--use-historical-cpi") == 0) c->mc_use_historical_cpi = 1;
         else if (strcmp(argv[i], "--with-guardrails") == 0) c->mc_with_guardrails = 1;
+        else if ((strcmp(argv[i], "--death-a") == 0 || strcmp(argv[i], "--death-b") == 0) && i + 1 < argc) {
+            /* survivor scenario from the command line: a date, or "none" to
+               ignore a death date set in the config file */
+            Date *d = argv[i][8] == 'a' ? &c->a.death_date : &c->b.death_date;
+            const char *v = argv[++i];
+            if (strcmp(v, "none") == 0) {
+                d->year = 0; d->month = 0; d->day = 0;
+            } else if (!parse_date(v, d)) {
+                fprintf(stderr, "Error: %s needs a date as YYYY-MM-DD, or 'none' (got '%s').\n", argv[i - 1], v);
+                exit(1);
+            }
+        }
     }
 }

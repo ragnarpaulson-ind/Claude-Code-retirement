@@ -85,6 +85,12 @@ void config_defaults(Config *c) {
     c->fed_age_credit_clawback_start = 1e18;
     c->oas_clawback_threshold = 95323.0;   /* 2026 income year, Canada.ca */
     c->oas_clawback_rate = 0.15;
+    c->a.death_date.year = 0;
+    c->b.death_date.year = 0;
+    c->survivor_spending_pct = 80.0;
+    c->cpp_survivor_rate = 0.60;
+    c->cpp_combined_max_monthly = 1531.56;  /* 2026, combined survivor/retirement at 65, Canada.ca */
+    c->cpp_death_benefit = 2500.0;
     c->prov_age_credit_amount = 0.0;
     c->prov_age_credit_rate = 0.0;
     c->prov_age_credit_clawback_start = 1e18;
@@ -146,6 +152,12 @@ int config_load(Config *c, const char *path) {
         else if (strcmp(key, "person_b_cpp_start") == 0) { parse_date(val, &c->b.cpp_start); }
         else if (strcmp(key, "person_a_oas_start") == 0) { parse_date(val, &c->a.oas_start); }
         else if (strcmp(key, "person_b_oas_start") == 0) { parse_date(val, &c->b.oas_start); }
+        else if (strcmp(key, "person_a_death_date") == 0) { parse_date(val, &c->a.death_date); }
+        else if (strcmp(key, "person_b_death_date") == 0) { parse_date(val, &c->b.death_date); }
+        else if (strcmp(key, "survivor_spending_pct") == 0) { c->survivor_spending_pct = atof(val); }
+        else if (strcmp(key, "cpp_survivor_rate") == 0) { c->cpp_survivor_rate = atof(val); }
+        else if (strcmp(key, "cpp_combined_max_monthly") == 0) { c->cpp_combined_max_monthly = atof(val); }
+        else if (strcmp(key, "cpp_death_benefit") == 0) { c->cpp_death_benefit = atof(val); }
         else if (strcmp(key, "person_a_cpp_at_65") == 0) { c->a.cpp_at_65 = atof(val); }
         else if (strcmp(key, "person_a_oas_at_65") == 0) { c->a.oas_at_65 = atof(val); }
         else if (strcmp(key, "person_b_cpp_at_65") == 0) { c->b.cpp_at_65 = atof(val); }

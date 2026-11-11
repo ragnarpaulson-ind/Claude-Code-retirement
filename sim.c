@@ -174,6 +174,14 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
     double rent_monthly = c->rent_monthly;
 
+    /* Survivor modelling: a person is dead from the first month that starts
+       on or after their death date (if one is configured). */
+    int alive_a = 1, alive_b = 1;
+    Date death_a_month = {0,0,0}, death_b_month = {0,0,0};
+    double dec_cpp_today = 0.0;    /* deceased's CPP entitlement, today's dollars */
+    int estate_reported = 0;
+    Date estate_date = {0,0,0};
+
     for (int m = 0; m < total_months; m++) {
         int year = c->sim_start_date.year + (c->sim_start_date.month - 1 + m) / 12;
         int month = (c->sim_start_date.month - 1 + m) % 12 + 1;
@@ -317,6 +325,49 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
            other covers the rest. */
         double event_amount = 0.0;
         char event_note[256] = "";
+
+        /* Deaths. At the first death the deceased's RRIF and non-registered
+           money roll over tax-free to the survivor (the TFSA is already
+           combined), along with the rest of this year's RRIF minimum; the
+           CPP death benefit is paid to the survivor. */
+        for (int who = 0; who < 2; who++) {
+            Date dd = who == 0 ? c->a.death_date : c->b.death_date;
+            int *alive = who == 0 ? &alive_a : &alive_b;
+            if (!*alive || dd.year == 0 || date_lt(cur, dd))   /* cur is the 1st of the month */
+                continue;
+            *alive = 0;
+            const Person *dp = who == 0 ? &c->a : &c->b;
+            if (who == 0) death_a_month = cur; else death_b_month = cur;
+            if (event_note[0]) strncat(event_note, "; ", sizeof(event_note) - strlen(event_note) - 1);
+            strncat(event_note, "Death of ", sizeof(event_note) - strlen(event_note) - 1);
+            strncat(event_note, dp->name, sizeof(event_note) - strlen(event_note) - 1);
+            if (alive_a || alive_b) {
+                /* first death: entitlement for the survivor's pension (if
+                   the deceased hadn't started CPP, the unadjusted at-65
+                   amount) */
+                int started = date_ge(cur, dp->cpp_start);
+                dec_cpp_today = dp->cpp_at_65 * (started ? (who == 0 ? cpp_factor_a : cpp_factor_b) : 1.0);
+                if (who == 0) {
+                    fund_b += fund_a; fund_a = 0.0;
+                    fund_b_nonreg += fund_a_nonreg; fund_a_nonreg = 0.0;
+                    rrif_monthly_min_b += rrif_monthly_min_a; rrif_monthly_min_a = 0.0;
+                    fund_b_nonreg += c->cpp_death_benefit;
+                } else {
+                    fund_a += fund_b; fund_b = 0.0;
+                    fund_a_nonreg += fund_b_nonreg; fund_b_nonreg = 0.0;
+                    rrif_monthly_min_a += rrif_monthly_min_b; rrif_monthly_min_b = 0.0;
+                    fund_a_nonreg += c->cpp_death_benefit;
+                }
+            }
+        }
+        if (!alive_a && !alive_b) {
+            /* second death: the simulation ends; what's left is the estate */
+            estate_reported = 1;
+            estate_date = cur;
+            break;
+        }
+        int both_alive = alive_a && alive_b;
+
         for (int e = 0; e < c->n_events; e++) {
             if (c->events[e].date.year == year && c->events[e].date.month == month) {
                 event_amount += c->events[e].amount;
@@ -352,8 +403,14 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
                 if (fund_a < 0) fund_a = 0;
             }
         } else if (event_amount > 0) {
-            fund_a_nonreg += event_amount / 2.0;
-            fund_b_nonreg += event_amount / 2.0;
+            if (both_alive) {
+                fund_a_nonreg += event_amount / 2.0;
+                fund_b_nonreg += event_amount / 2.0;
+            } else if (alive_a) {
+                fund_a_nonreg += event_amount;
+            } else {
+                fund_b_nonreg += event_amount;
+            }
         }
 
         int retired = date_ge(cur, c->retirement_date);
@@ -362,6 +419,18 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double cpp_b = date_ge(cur, c->b.cpp_start) ? c->b.cpp_at_65 * cpp_factor_b * gov_inflate : 0.0;
         double oas_a = date_ge(cur, c->a.oas_start) ? c->a.oas_at_65 * oas_factor_a * gov_inflate : 0.0;
         double oas_b = date_ge(cur, c->b.oas_start) ? c->b.oas_at_65 * oas_factor_b * gov_inflate : 0.0;
+        if (!both_alive) {
+            /* CPP survivor's pension (65+ rule): cpp_survivor_rate of the
+               deceased's pension, but own + survivor's pension may not exceed
+               the combined maximum. The deceased's own CPP and OAS stop. */
+            double *own = alive_a ? &cpp_a : &cpp_b;
+            double room = c->cpp_combined_max_monthly * gov_inflate - *own;
+            double surv = c->cpp_survivor_rate * dec_cpp_today * gov_inflate;
+            if (surv > room) surv = room;
+            if (surv > 0) *own += surv;
+            if (!alive_a) { cpp_a = 0.0; oas_a = 0.0; }
+            if (!alive_b) { cpp_b = 0.0; oas_b = 0.0; }
+        }
 
         double non_reg_income_a = 0.0, non_reg_income_b = 0.0;
         if (fund_a_nonreg > 0) {
@@ -380,8 +449,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         double target_gross_pp = retired ? c->target_gross_monthly * personal_inflate * spend_scale : 0.0;
         /* need_x: the registered draw that lands person x exactly on their
            gross target (before the RRIF-minimum floor is applied). */
-        double need_a = retired ? (target_gross_pp - fixed_a) : 0.0;
-        double need_b = retired ? (target_gross_pp - fixed_b) : 0.0;
+        double need_a = (retired && alive_a) ? (target_gross_pp - fixed_a) : 0.0;
+        double need_b = (retired && alive_b) ? (target_gross_pp - fixed_b) : 0.0;
         if (need_a < 0) need_a = 0;
         if (need_b < 0) need_b = 0;
         double base_draw_a = need_a;
@@ -405,9 +474,10 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
            B's return, - = B's income reported on A's return. base_draw_a/b
            remain the CASH taken from each account. */
         double split_a_to_b = 0.0;
-        int split_eligible_a = (year - c->a.dob.year >= 65);
-        int split_eligible_b = (year - c->b.dob.year >= 65);
-        if (retired) {
+        /* no splitting once one spouse has died: one return */
+        int split_eligible_a = both_alive && (year - c->a.dob.year >= 65);
+        int split_eligible_b = both_alive && (year - c->b.dob.year >= 65);
+        if (retired && both_alive) {
             double cap_a = split_eligible_a ? 0.5 * base_draw_a : 0.0;
             double cap_b = split_eligible_b ? 0.5 * base_draw_b : 0.0;
             double excess_a = base_draw_a - need_a;
@@ -499,7 +569,10 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         compute_net(c, cur, age65_a, age65_b, gov_inflate, fixed_a, fixed_b, draw_a, draw_b, oas_a, oas_b,
                     &tax_a, &tax_b, &credit_a, &credit_b, &claw_a, &claw_b, &household_gross, &net_of_tax);
 
-        double target_net_effective = c->target_net_monthly * personal_inflate;
+        /* After the first death the survivor spends survivor_spending_pct of
+           the couple's target; rent (added below) continues in full. */
+        double target_net_effective = c->target_net_monthly * personal_inflate
+                                      * (both_alive ? 1.0 : c->survivor_spending_pct / 100.0);
 	    int renting = date_ge(cur, c->rent_start_date) && rent_monthly > 0.01;
 	    if (renting) target_net_effective += rent_monthly;
         target_net_effective *= spend_scale;
@@ -700,6 +773,17 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         if (oas_claw_months)
             printf("NOTE: OAS clawback (recovery tax) applied in %d month(s), starting %04d-%02d; $%.0f repaid in total (nominal).\n",
                    oas_claw_months, oas_claw_first.year, oas_claw_first.month, oas_claw_total);
+        if (death_a_month.year)
+            printf("NOTE: %s died; from %04d-%02d %s.\n", c->a.name, death_a_month.year, death_a_month.month,
+                   death_b_month.year ? "(see below)" : "the survivor's spending, CPP and tax apply");
+        if (death_b_month.year)
+            printf("NOTE: %s died; from %04d-%02d %s.\n", c->b.name, death_b_month.year, death_b_month.month,
+                   death_a_month.year ? "(see above)" : "the survivor's spending, CPP and tax apply");
+        if (estate_reported)
+            printf("NOTE: simulation ended at the second death (%04d-%02d); estate $%.0f (nominal), $%.0f in today's dollars.\n",
+                   estate_date.year, estate_date.month,
+                   tfsa_balance + fund_a + fund_b + fund_a_nonreg + fund_b_nonreg,
+                   (tfsa_balance + fund_a + fund_b + fund_a_nonreg + fund_b_nonreg) / price_index);
         if (household_shortfall_reported)
             printf("WARNING: registered funds combined were insufficient to meet the base/RRIF-minimum draw in %d month(s), starting %04d-%02d.\n",
                    household_shortfall_months, household_shortfall_date.year, household_shortfall_date.month);

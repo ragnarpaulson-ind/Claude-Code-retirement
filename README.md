@@ -133,6 +133,30 @@ The simulator advances month by month. For each month it:
      TFSA withdrawals;
    - sweeps non-registered money into the TFSA, up to the available room.
 
+9. **Survivor modelling** (when `person_a_death_date` and/or
+   `person_b_death_date` is set), from the first month starting on or after
+   the death date:
+   - the deceased's RRIF and non-registered balances roll over tax-free to
+     the survivor (the TFSA is already combined), with the rest of that
+     year's RRIF minimum; from the next January the minimum uses the
+     survivor's age;
+   - the deceased's CPP and OAS stop; the survivor gets the CPP survivor's
+     pension, `cpp_survivor_rate` (60%, the 65+ rule) of the deceased's
+     CPP, with own + survivor's pension capped at `cpp_combined_max_monthly`
+     ($1,531.56 in 2026, indexed); the CPP death benefit
+     (`cpp_death_benefit`, $2,500) is paid once into the survivor's
+     non-registered account;
+   - tax is on the survivor's return alone, with no pension splitting
+     (where the OAS clawback can apply);
+   - the net spending target drops to `survivor_spending_pct` (80%) of the
+     couple's, while rent continues in full; the per-person gross target is
+     unchanged;
+   - later one-time events go entirely to the survivor;
+   - if both deaths fall within the horizon, the simulation ends at the
+     second and reports the estate (nominal and in today's dollars).
+   Death dates are fixed: every Monte Carlo trial (and the guardrails' flat
+   plan) uses the same dates. The `event` column shows "Death of <name>".
+
 If the household still can't meet its spending target after every source has
 been drawn as far as possible, the run reports that money ran out.
 

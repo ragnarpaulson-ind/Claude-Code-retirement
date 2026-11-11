@@ -21,6 +21,13 @@ static double oas_adjustment_factor(Date oas_start, Date age65) {
     return 1.0;
 }
 
+/* Age in whole years on January 1 of `year` -- the age CRA uses for the
+ * RRIF minimum (IC78-18R7). Someone born on January 1 has already had that
+ * year's birthday; everyone else hasn't. */
+static int age_on_jan1(int year, Date dob) {
+    return year - dob.year - ((dob.month == 1 && dob.day == 1) ? 0 : 1);
+}
+
 static int is_age_65_plus(Date current, Date age65) {
     return date_ge(current, age65);
 }
@@ -153,8 +160,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     /* RRIF minimum withdrawal: recomputed each January 1 from that day's
        balance and that day's age, then held flat (spread evenly across the
        year) until the next January 1. */
-    double rrif_monthly_min_a = fund_a * rrif_min_factor(c->sim_start_date.year - c->a.dob.year) / 12.0;
-    double rrif_monthly_min_b = fund_b * rrif_min_factor(c->sim_start_date.year - c->b.dob.year) / 12.0;
+    double rrif_monthly_min_a = fund_a * rrif_min_factor(age_on_jan1(c->sim_start_date.year, c->a.dob)) / 12.0;
+    double rrif_monthly_min_b = fund_b * rrif_min_factor(age_on_jan1(c->sim_start_date.year, c->b.dob)) / 12.0;
 
     double gov_inflate = 1.0;
     /* Cumulative price level for expressing balances in today's dollars:
@@ -303,8 +310,8 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
 
             /* New January 1: re-baseline the RRIF minimum from this year's
                opening balance and age. */
-            rrif_monthly_min_a = fund_a * rrif_min_factor(year - c->a.dob.year) / 12.0;
-            rrif_monthly_min_b = fund_b * rrif_min_factor(year - c->b.dob.year) / 12.0;
+            rrif_monthly_min_a = fund_a * rrif_min_factor(age_on_jan1(year, c->a.dob)) / 12.0;
+            rrif_monthly_min_b = fund_b * rrif_min_factor(age_on_jan1(year, c->b.dob)) / 12.0;
             /* New TFSA contribution room */
             tfsa_contribution_room += c->tfsa_annual_contribution_room_grant;
             tfsa_contribution_room += tfsa_contribution_room_change;

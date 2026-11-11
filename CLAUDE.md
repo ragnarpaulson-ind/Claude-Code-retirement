@@ -19,8 +19,15 @@ hard-coded, wherever possible.
 - Confirm design decisions that could reasonably go either way before
   patching.
 - Build with the Makefile (`make`); it must compile with no warnings under
-  `-std=c11 -Wall -Wextra`. Run the program against a config and inspect the
-  CSV before handing work back.
+  `-std=c11 -Wall -Wextra`. Run `make test` (all must pass) and run the
+  program against a config and inspect the CSV before handing work back.
+- When fixing a bug or adding a rule, add a test to `tests/run_tests.py`
+  whose expected value is computed independently from the rule, not copied
+  from the program's output.
+- Owner's planning choices -- do not "fix" these without asking:
+  - The OAS 10% increase at 75 is deliberately NOT modelled (future
+    benefits may be cut); leave it out as a built-in margin.
+  - Death dates are fixed scenarios, not random mortality.
 - The owner's real config and events files (e.g. `retire.cfg`,
   `bigevents.csv`) live in their local working copy and are not committed.
   `sample_config.cfg` / `sample_events.csv` are placeholders (sample balances
@@ -33,6 +40,7 @@ make
 ./retirement_sim --config sample_config.cfg --monte-carlo [--use-historical-cpi]
 ./retirement_sim --config sample_config.cfg --mc-in-turn
 ./retirement_sim --help
+make test        # regression tests (tests/run_tests.py, Python stdlib only)
 ```
 
 ## Files
@@ -187,12 +195,11 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
 3. Block bootstrap dropped (owner's call: --mc-in-turn and independent
    years bracket it). Shortfall reporting folded into guardrail stats.
 4. Survivor modelling done (fixed death dates). Not modelled: random
-   mortality in Monte Carlo; CPP survivor rules under 65; OAS +10% at 75;
-   GIS.
-5. Independent review (Nov 2026) open findings: Ontario Health Premium, OAS
-   +10% at 75 and the pension income credit not modelled; non-reg return
-   taxed as 100% income; Ontario bracket thresholds and age-credit amounts
-   in sample_config.cfg are stale for 2026; TFSA grant not indexed or
+   mortality in Monte Carlo (owner's choice); CPP survivor rules under 65;
+   OAS +10% at 75 (owner's choice); GIS.
+5. Independent review (Nov 2026) open findings: Ontario Health Premium and
+   the pension income credit not modelled; non-reg return
+   taxed as 100% income; TFSA grant not indexed or
    halved after a death; cross-account sourcing can attribute > 50%;
    Monte Carlo with mc_alloc_* but no --use-historical-cpi gives no warning;
    tax is monthly income x 12 (uneven years over-taxed); event lumps are

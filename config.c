@@ -11,16 +11,22 @@ const char *const ASSET_CLASS_NAMES[N_ASSET_CLASSES] = {
     "ca_eq", "us_eq", "intl_eq", "ca_bonds", "cash"
 };
 
-/* Handles mc_alloc_<asset class> keys. Returns 1 if the key was one. */
+/* Handles mc_alloc_<asset class> and mc_real_return_<asset class> keys.
+   Returns 1 if the key was one. */
 static int parse_alloc_key(Config *c, const char *key, const char *val) {
-    if (strncmp(key, "mc_alloc_", 9) != 0) return 0;
+    const char *name;
+    int is_alloc;
+    if (strncmp(key, "mc_alloc_", 9) == 0) { name = key + 9; is_alloc = 1; }
+    else if (strncmp(key, "mc_real_return_", 15) == 0) { name = key + 15; is_alloc = 0; }
+    else return 0;
     for (int i = 0; i < N_ASSET_CLASSES; i++) {
-        if (strcmp(key + 9, ASSET_CLASS_NAMES[i]) == 0) {
-            c->mc_alloc[i] = atof(val);
+        if (strcmp(name, ASSET_CLASS_NAMES[i]) == 0) {
+            if (is_alloc) c->mc_alloc[i] = atof(val);
+            else { c->mc_real_return[i] = atof(val); c->mc_real_return_set[i] = 1; }
             return 1;
         }
     }
-    return 0;   /* unknown mc_alloc_ key: falls through to the unknown-key warning */
+    return 0;   /* unknown asset name: falls through to the unknown-key warning */
 }
 
 void config_defaults(Config *c) {
@@ -90,7 +96,11 @@ void config_defaults(Config *c) {
     c->mc_run = 0;
     c->mc_in_turn = 0;
     c->mc_use_historical_cpi = 0;
-    for (int i = 0; i < N_ASSET_CLASSES; i++) c->mc_alloc[i] = 0.0;
+    for (int i = 0; i < N_ASSET_CLASSES; i++) {
+        c->mc_alloc[i] = 0.0;
+        c->mc_real_return[i] = 0.0;
+        c->mc_real_return_set[i] = 0;
+    }
 }
 
 static char *trim(char *s) {
@@ -183,7 +193,7 @@ int config_load(Config *c, const char *path) {
         else if (strcmp(key, "mc_trials") == 0) { c->mc_trials = atoi(val); }
         else if (strcmp(key, "mc_returns_file") == 0) { strncpy(c->mc_returns_file, val, sizeof(c->mc_returns_file)-1); }
         else if (strcmp(key, "mc_seed") == 0) { c->mc_seed = (unsigned int)strtoul(val, NULL, 10); }
-        else if (parse_alloc_key(c, key, val)) { /* mc_alloc_<asset class> */ }
+        else if (parse_alloc_key(c, key, val)) { /* mc_alloc_ / mc_real_return_<asset class> */ }
         else {
             fprintf(stderr, "Warning: unknown config key '%s' (ignored)\n", key);
         }

@@ -277,6 +277,38 @@ Leave out an asset class (or set it to 0) to hold none of it. Set
 and run with `--use-historical-cpi`: returns from high-inflation decades are
 only meaningful alongside that era's inflation.
 
+#### Expected returns (optional)
+
+History's average return is one period's outcome, and 1957–2025 included
+interest rates falling from 15% to near zero, which flattered both bonds and
+stocks. To test a plan against a forward-looking average while keeping
+history's volatility, set an expected long-run **real** (after-inflation)
+return per asset class:
+
+```
+mc_real_return_ca_eq=4.1
+mc_real_return_us_eq=4.2
+mc_real_return_intl_eq=4.4
+mc_real_return_ca_bonds=1.1
+mc_real_return_cash=0.3
+```
+
+For each asset with a target, every year's (1 + return) is multiplied by one
+constant, chosen so the asset's compound real return over the whole file
+equals the target. Each year keeps its CPI, its crash or boom relative to the
+average, and its co-movement with the other assets; only the average moves.
+The run prints each asset's historical real return, the target and the
+multiplier. Assets without a target use pure history.
+
+The values above are the FP Canada / Institute of Financial Planning 2026
+[Projection Assumption Guidelines](https://institutpf.org/assets/Documents/Normes-projection/InstituteFP-PAG2026.pdf)
+(nominal 6.3 / 6.4 / 6.6 / 3.2 / 2.4%) less their 2.1% inflation assumption.
+Their equity figures include a 0.5% safety margin, which the guidelines
+suggest adding back for Monte Carlo (4.6 / 4.7 / 4.9), since Monte Carlo
+models the uncertainty itself. Update the values when new guidelines are
+published each spring. For comparison, 1957–2025 history is 5.5 / 7.3 / 7.0 /
+2.5 / 1.6% real.
+
 The script can also write a pre-blended 3-column file for one allocation
 (`--blend ca_eq=0.2,...,cash=0.1 my-blend.csv`);
 `blend-20ca-20us-20intl-30bond-10cash.csv` is that example.

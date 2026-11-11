@@ -105,6 +105,11 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
   summing to 1) the loader blends those named columns each year
   (rebalanced annually) and takes CPI from the `cpi` column; without
   weights it expects `year,return_pct,cpi_pct`.
+- Optional `mc_real_return_<asset>` (% real per year) re-centres that
+  asset before blending: every year's (1+r) is multiplied by
+  k = (1+target) / (compound real return over the file), so the compound
+  real average equals the target and each year keeps its CPI and relative
+  deviation. Needs `mc_alloc_*` weights; meant for `--use-historical-cpi`.
 - `--monte-carlo`: each simulated year drawn independently with replacement.
   `--mc-in-turn`: one trial per starting year, wrapping around.
 - Config keys: `mc_trials` (default 10000), `mc_returns_file`, `mc_seed`
@@ -136,9 +141,7 @@ Inflation: `personal_inflation_pct` for spending targets (paused during the
    flat for the year (not implemented).
 2. Non-registered principal does not compound; ROI above needed income is
    not handled (owner is aware, deferred).
-3. Planned Monte Carlo improvements, in order: optional per-asset
-   expected real returns (re-centre each asset's historical returns on a
-   cited forward-looking average, e.g. FP Canada PAG); multi-year block
+3. Planned Monte Carlo improvements, in order: multi-year block
    bootstrap; shortfall reporting (when, how deep, today's dollars).
 4. Planned next: OAS recovery tax (clawback), then survivor modelling
    (death date, ~80% spending, survivor CPP, single-return tax).

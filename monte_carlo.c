@@ -346,7 +346,7 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
        inflation) supplies the path each trial is compared against. */
     SimResult plan;
     const SimResult *plan_ptr = NULL;
-    int gr_any_cut = 0, gr_succ_with_cut = 0;
+    int gr_any_cut = 0, gr_succ_with_cut = 0, gr_succ_no_cut = 0;
     int *gr_years = NULL;
     int gr_depth_count[64] = {0};      /* trials whose deepest cut is step*(i) */
     int gr_n_steps = 0;
@@ -423,6 +423,8 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
             if (result.guardrail_years_cut > 0) {
                 gr_any_cut++;
                 if (!result.money_ran_out) gr_succ_with_cut++;
+            } else if (!result.money_ran_out) {
+                gr_succ_no_cut++;
             }
             int d = (int)(result.guardrail_max_cut_pct / c->guardrail_step_pct + 0.5);
             if (d > gr_n_steps) d = gr_n_steps;
@@ -485,9 +487,13 @@ int run_monte_carlo(const Config *c, const char *csv_path) {
     }
     if (plan_ptr) {
         printf("\nGuardrails:\n");
-        printf("  Trials that never needed a cut:     %5.1f%%\n", 100.0 * (trials - gr_any_cut) / trials);
-        printf("  Trials with a cut, money lasted:    %5.1f%%\n", 100.0 * gr_succ_with_cut / trials);
-        printf("  Trials with a cut, money ran out:   %5.1f%%\n", 100.0 * (gr_any_cut - gr_succ_with_cut) / trials);
+        /* The four outcomes partition the trials, so they sum to 100% and the
+           two "lasted" lines sum to the success rate above. */
+        printf("                          money lasted   money ran out\n");
+        printf("  Never cut spending:        %5.1f%%          %5.1f%%\n",
+               100.0 * gr_succ_no_cut / trials, 100.0 * (trials - gr_any_cut - gr_succ_no_cut) / trials);
+        printf("  Cut spending at some point:%5.1f%%          %5.1f%%\n",
+               100.0 * gr_succ_with_cut / trials, 100.0 * (gr_any_cut - gr_succ_with_cut) / trials);
         printf("  Deepest cut reached:");
         for (int i = 0; i <= gr_n_steps; i++)
             printf("  %.0f%%: %.1f%%", i * c->guardrail_step_pct, 100.0 * gr_depth_count[i] / trials);

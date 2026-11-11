@@ -163,7 +163,13 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
     double rrif_monthly_min_a = fund_a * rrif_min_factor(age_on_jan1(c->sim_start_date.year, c->a.dob)) / 12.0;
     double rrif_monthly_min_b = fund_b * rrif_min_factor(age_on_jan1(c->sim_start_date.year, c->b.dob)) / 12.0;
 
+    /* Government amounts (CPP/OAS at 65, tax brackets, age credits, OAS
+       clawback threshold, CPP survivor maximum) are entered in
+       dollars_year dollars; bring them forward to the start year at
+       gov_inflation_pct (0 = already in start-year dollars). */
     double gov_inflate = 1.0;
+    if (c->dollars_year > 0 && c->dollars_year != c->sim_start_date.year)
+        gov_inflate = pow(1.0 + c->gov_inflation_pct / 100.0, c->sim_start_date.year - c->dollars_year);
     /* Cumulative price level for expressing balances in today's dollars:
        like personal_inflate but with no go-slow pause. */
     double price_index = 1.0;

@@ -63,6 +63,7 @@ typedef struct {
                                         every year's return, flat and Monte Carlo */
     double personal_inflation_pct;   /* inflates spending targets */
     double gov_inflation_pct;        /* inflates CPP/OAS/tax brackets/credits */
+    int    dollars_year;             /* year the government amounts are in (0 = start year) */
 
     double target_net_monthly;       /* today's-dollars net (after-tax) spending target */
     double target_gross_monthly;     /* today's-dollars gross (pre-tax) household income target */

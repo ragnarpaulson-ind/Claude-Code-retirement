@@ -229,6 +229,12 @@ placeholders; the sample balances are $0):
 - spending targets: `target_net_monthly` (household, after tax) and
   `target_gross_monthly` (per person, before tax).
 - ROI, inflation rates, and the go-slow window.
+- `dollars_year`: the year your government amounts are in (CPP/OAS at 65,
+  tax brackets, age credits, OAS clawback threshold, CPP survivor maximum).
+  They're indexed from that year to the simulation start at
+  `gov_inflation_pct`, so you can paste in each year's official figures as
+  they're published. Omit it if they're already in start-year dollars.
+  Spending targets and rent are not affected.
 - `annual_fee_pct`: investment fees (e.g. ETF MERs), deducted from every
   year's return in both flat and Monte Carlo runs (default 0; leave it at 0
   if `roi_annual_pct` is already net of fees). The historical return files

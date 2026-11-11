@@ -51,6 +51,9 @@ int main(int argc, char **argv) {
 
     printf("Retirement simulation\n");
     printf("  %s: retirement %04d-%02d-%02d\n", cfg.a.name, cfg.retirement_date.year, cfg.retirement_date.month, cfg.retirement_date.day);
+    if (cfg.dollars_year > 0 && cfg.dollars_year != cfg.sim_start_date.year)
+        printf("  Government amounts are in %d dollars; indexed %+d year(s) to %d at %.2f%%/yr\n",
+               cfg.dollars_year, cfg.sim_start_date.year - cfg.dollars_year, cfg.sim_start_date.year, cfg.gov_inflation_pct);
     printf("  Simulating from %04d-%02d-%02d for %d years -> %s\n\n",
            cfg.sim_start_date.year, cfg.sim_start_date.month, cfg.sim_start_date.day, cfg.sim_years, out_path);
 

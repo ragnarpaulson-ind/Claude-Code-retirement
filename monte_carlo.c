@@ -79,8 +79,13 @@ static int load_return_series(const Config *c, const char *path, historical_retu
 
     int capacity = 128, count = 0;
     historical_returns_t *returns = malloc(capacity * sizeof(*returns));
-    if (!returns) {
+    /* per-year asset-class returns, kept until all years are read so each
+       asset can be re-centred on its mc_real_return_* target before blending */
+    double (*asset)[N_ASSET_CLASSES] = malloc(capacity * sizeof(*asset));
+    if (!returns || !asset) {
         fprintf(stderr, "Out of memory reading historical returns file '%s'\n", path);
+        free(returns);
+        free(asset);
         fclose(f);
         return 0;
     }
@@ -133,11 +138,13 @@ static int load_return_series(const Config *c, const char *path, historical_retu
         if (count >= capacity) {
             capacity *= 2;
             historical_returns_t *grown = realloc(returns, capacity * sizeof(*returns));
-            if (!grown) {
+            if (grown) returns = grown;
+            double (*grown_a)[N_ASSET_CLASSES] = realloc(asset, capacity * sizeof(*asset));
+            if (grown_a) asset = grown_a;
+            if (!grown || !grown_a) {
                 fprintf(stderr, "Out of memory reading historical returns file '%s'\n", path);
                 goto fail;
             }
-            returns = grown;
         }
 
         returns[count].year = (int)vals[0];
@@ -147,20 +154,20 @@ static int load_return_series(const Config *c, const char *path, historical_retu
             goto fail;
         }
         if (use_alloc) {
-            double roi = 0.0;
             for (int a = 0; a < N_ASSET_CLASSES; a++) {
+                asset[count][a] = 0.0;
                 if (c->mc_alloc[a] == 0.0) continue;
                 if (alloc_col[a] + 1 >= nv) {
                     fprintf(stderr, "'%s': year %d is missing the '%s' value.\n", path, returns[count].year, ASSET_CLASS_NAMES[a]);
                     goto fail;
                 }
-                roi += c->mc_alloc[a] * vals[alloc_col[a] + 1];
+                asset[count][a] = vals[alloc_col[a] + 1];
             }
             if (cpi_col + 1 >= nv) {
                 fprintf(stderr, "'%s': year %d is missing the cpi value.\n", path, returns[count].year);
                 goto fail;
             }
-            returns[count].roi = roi;
+            returns[count].roi = 0.0;     /* blended below, once all years are read */
             returns[count].cpi = vals[cpi_col + 1];
         } else {
             returns[count].roi = vals[1];
@@ -173,8 +180,35 @@ static int load_return_series(const Config *c, const char *path, historical_retu
     if (count == 0) {
         fprintf(stderr, "Historical returns file '%s' had no usable data rows.\n", path);
         free(returns);
+        free(asset);
         return 0;
     }
+
+    if (use_alloc) {
+        /* Re-centre: for each asset with a real-return target, find the
+           compound real return over the whole file, g = (prod (1+r)/(1+cpi))^(1/n),
+           then multiply every year's (1+r) by k = (1+target)/g. The compound
+           real return becomes exactly the target; each year keeps its CPI and
+           its deviation from the average (in relative terms). */
+        for (int a = 0; a < N_ASSET_CLASSES; a++) {
+            if (!c->mc_real_return_set[a] || c->mc_alloc[a] == 0.0) continue;
+            double log_sum = 0.0;
+            for (int i = 0; i < count; i++)
+                log_sum += log((1.0 + asset[i][a] / 100.0) / (1.0 + returns[i].cpi / 100.0));
+            double g = exp(log_sum / count);
+            double k = (1.0 + c->mc_real_return[a] / 100.0) / g;
+            for (int i = 0; i < count; i++)
+                asset[i][a] = ((1.0 + asset[i][a] / 100.0) * k - 1.0) * 100.0;
+            printf("  %-8s real return: historical %.2f%%/yr -> target %.2f%%/yr (each year's 1+return x %.4f)\n",
+                   ASSET_CLASS_NAMES[a], (g - 1.0) * 100.0, c->mc_real_return[a], k);
+        }
+        for (int i = 0; i < count; i++) {
+            double roi = 0.0;
+            for (int a = 0; a < N_ASSET_CLASSES; a++) roi += c->mc_alloc[a] * asset[i][a];
+            returns[i].roi = roi;
+        }
+    }
+    free(asset);
 
     *out = returns;
     *n = count;
@@ -182,6 +216,7 @@ static int load_return_series(const Config *c, const char *path, historical_retu
 
 fail:
     free(returns);
+    free(asset);
     fclose(f);
     return 0;
 }
@@ -202,6 +237,26 @@ static int check_allocation(const Config *c) {
         fprintf(stderr, "mc_alloc_* weights sum to %.4f; they must sum to 1 (e.g. 0.20 for 20%%).\n", sum);
         return 0;
     }
+    for (int a = 0; a < N_ASSET_CLASSES; a++) {
+        if (!c->mc_real_return_set[a]) continue;
+        if (!any) {
+            fprintf(stderr, "mc_real_return_%s is set, but no mc_alloc_* weights are: real-return targets need "
+                            "an asset-class returns file and allocation weights.\n", ASSET_CLASS_NAMES[a]);
+            return 0;
+        }
+        if (c->mc_alloc[a] == 0.0)
+            fprintf(stderr, "Warning: mc_real_return_%s is set but mc_alloc_%s is 0 (ignored).\n",
+                    ASSET_CLASS_NAMES[a], ASSET_CLASS_NAMES[a]);
+        if (c->mc_real_return[a] <= -100.0) {
+            fprintf(stderr, "mc_real_return_%s must be above -100.\n", ASSET_CLASS_NAMES[a]);
+            return 0;
+        }
+    }
+    int any_target = 0;
+    for (int a = 0; a < N_ASSET_CLASSES; a++) if (c->mc_real_return_set[a] && c->mc_alloc[a] != 0.0) any_target = 1;
+    if (any_target && !c->mc_use_historical_cpi)
+        fprintf(stderr, "Warning: mc_real_return_* targets are after inflation using the file's historical CPI; "
+                        "run with --use-historical-cpi or spending will not inflate to match.\n");
     if (any) {
         printf("Portfolio allocation (rebalanced annually):");
         for (int a = 0; a < N_ASSET_CLASSES; a++)

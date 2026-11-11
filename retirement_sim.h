@@ -99,6 +99,13 @@ typedef struct {
        into one return per year. All zero = the file already holds a single
        blended return (year,return_pct,cpi_pct). Config keys mc_alloc_<name>. */
     double mc_alloc[N_ASSET_CLASSES];
+    /* Optional expected long-run REAL (after-inflation) return per asset
+       class, % per year (keys mc_real_return_<name>). When set, that asset's
+       historical returns are re-centred so their compound real average over
+       the file equals this value; year-to-year deviations, crashes,
+       co-movement and each year's CPI are kept. Unset = pure history. */
+    double mc_real_return[N_ASSET_CLASSES];
+    int    mc_real_return_set[N_ASSET_CLASSES];
 } Config;
 
 void config_defaults(Config *c);

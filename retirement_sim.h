@@ -5,6 +5,10 @@
 
 #define MAX_TAX_BRACKETS 16
 #define MAX_EVENTS 256
+
+/* Asset classes in historical_returns_cad.csv, in config/key order. */
+#define N_ASSET_CLASSES 5
+extern const char *const ASSET_CLASS_NAMES[N_ASSET_CLASSES];
 #define WHO_NONE 0
 #define WHO_A 1   /* "person A" -- e.g. Ragnar */
 #define WHO_B 2   /* "person B" -- e.g. Jen */
@@ -90,6 +94,11 @@ typedef struct {
     unsigned int mc_run;              /* 0, run single simulation, 1 run monte-carlo. set by CLI */
     unsigned int mc_in_turn;          /* 0, run simulations based on historical date set size, starting from each year in set once. set by CLI */
     unsigned int mc_use_historical_cpi;  /* 0, use fixed gov_inflation_pct. 1, use historical CPI from mc_returns_file. set by CLI */
+    /* Portfolio weights (fractions summing to 1, rebalanced annually) used to
+       blend an asset-class returns file such as historical_returns_cad.csv
+       into one return per year. All zero = the file already holds a single
+       blended return (year,return_pct,cpi_pct). Config keys mc_alloc_<name>. */
+    double mc_alloc[N_ASSET_CLASSES];
 } Config;
 
 void config_defaults(Config *c);

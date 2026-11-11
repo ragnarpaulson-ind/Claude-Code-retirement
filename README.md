@@ -57,6 +57,7 @@ Run `./retirement_sim --help` for all options:
 | `--retire-date <YYYY-MM-DD>` | Override retirement date |
 | `--tfsa <amount>` | Override starting TFSA balance |
 | `--registered-a <amount>` / `--registered-b <amount>` | Override starting registered balances |
+| `--death-a <YYYY-MM-DD\|none>` / `--death-b ...` | Survivor scenario: override the death date in the config (`none` ignores one set there); Monte Carlo uses it in every trial |
 | `--monte-carlo` | Run Monte Carlo (bootstrap) using `mc_returns_file` |
 | `--mc-in-turn` | Run one Monte Carlo trial per starting year in the returns file |
 | `--use-historical-cpi` | In Monte Carlo, use the file's CPI column instead of the fixed inflation rates |
@@ -155,7 +156,9 @@ The simulator advances month by month. For each month it:
    - if both deaths fall within the horizon, the simulation ends at the
      second and reports the estate (nominal and in today's dollars).
    Death dates are fixed: every Monte Carlo trial (and the guardrails' flat
-   plan) uses the same dates. The `event` column shows "Death of <name>".
+   plan) uses the same dates. Set them in the config or, to try scenarios
+   quickly, with `--death-a` / `--death-b` on the command line, e.g.
+   `--death-a 2036-05-23`; the run header confirms the scenario in use. The `event` column shows "Death of <name>".
 
 If the household still can't meet its spending target after every source has
 been drawn as far as possible, the run reports that money ran out.

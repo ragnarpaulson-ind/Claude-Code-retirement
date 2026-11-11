@@ -38,6 +38,7 @@ void config_defaults(Config *c) {
     c->person_b_registered_balance = 500000.0;
 
     c->roi_annual_pct = 5.0;
+    c->annual_fee_pct = 0.0;
     c->personal_inflation_pct = 2.5;
     c->gov_inflation_pct = 2.0;
 
@@ -131,6 +132,7 @@ int config_load(Config *c, const char *path) {
         else if (strcmp(key, "person_b_nonreg_balance") == 0) { c->person_b_nonreg_balance = atof(val); }   
 
         else if (strcmp(key, "roi_annual_pct") == 0) { c->roi_annual_pct = atof(val); }
+        else if (strcmp(key, "annual_fee_pct") == 0) { c->annual_fee_pct = atof(val); }
         else if (strcmp(key, "personal_inflation_pct") == 0) { c->personal_inflation_pct = atof(val); }
         else if (strcmp(key, "gov_inflation_pct") == 0) { c->gov_inflation_pct = atof(val); }
 

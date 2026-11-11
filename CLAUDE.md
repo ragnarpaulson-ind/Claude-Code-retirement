@@ -53,8 +53,10 @@ make
    first (proportionally), then any remainder from registered, split evenly;
    if one registered account can't cover its half, the other covers the rest.
 2. **Fixed income per person:** CPP/OAS (early/late adjustment factors,
-   indexed by gov inflation) plus non-registered yield (ROI × balance,
+   indexed by gov inflation) plus non-registered yield (net ROI × balance,
    monthly, taxable). Non-registered principal does not compound.
+   Net ROI = gross return (`roi_annual_pct`, or the Monte Carlo year's
+   return) minus `annual_fee_pct`; it applies to every pool.
 3. **Base registered draw per person:** `need` = draw that lands taxable
    income exactly on `target_gross_monthly` (per person, personal-inflated);
    floored at that person's RRIF minimum.

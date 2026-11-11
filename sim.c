@@ -149,8 +149,11 @@ int run_simulation_ex(const Config *c, const char *csv_path, const historical_re
         /* Which annual ROI rate applies this month: Monte Carlo supplies a
            different rate per simulated calendar year (one draw from the
            historical return series); otherwise it's the flat configured
-           rate every year. */
-        double current_roi_pct = roi_override ? roi_override[year - c->sim_start_date.year].roi : c->roi_annual_pct;
+           rate every year. Investment fees (annual_fee_pct, e.g. ETF MERs)
+           are deducted from that gross return, so every pool -- and the
+           taxable non-registered yield -- earns the net rate. */
+        double current_roi_pct = (roi_override ? roi_override[year - c->sim_start_date.year].roi : c->roi_annual_pct)
+                                 - c->annual_fee_pct;
 
         if (year != prev_year) {
             /* Print the true Dec 31 closing balances FIRST, before any of
